@@ -1,0 +1,14 @@
+{
+  "name": "circuitboard-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "postinstall": "npm --prefix backend ci --no-audit --no-fund && npm --prefix web ci --no-audit --no-fund && npm --prefix web run build",
+    "start": "node backend/index.js"
+  }
+}
+
+
