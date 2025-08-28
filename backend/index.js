@@ -40,6 +40,16 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, hasKey: Boolean(OPENAI_API_KEY), baseUrl: OPENAI_BASE_URL })
 })
 
+// Serve built frontend (Vite) from web/dist
+const distPath = path.join(__dirname, '..', 'web', 'dist')
+app.use(express.static(distPath))
+
+// SPA fallback for non-API routes
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api')) return res.status(404).end()
+  res.sendFile(path.join(distPath, 'index.html'))
+})
+
 const port = process.env.PORT || 8787
 app.listen(port, () => {
   console.log(`backend listening on http://localhost:${port}`)
