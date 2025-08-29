@@ -150,8 +150,11 @@ function App() {
   const [showDocs, setShowDocs] = useState<boolean>(false)
   const [showUpdates, setShowUpdates] = useState<boolean>(false)
   const [showStickyEditor, setShowStickyEditor] = useState<boolean>(false)
-  const [guidePage, setGuidePage] = useState<'start' | 'nodes' | 'links' | 'notes' | 'canvas' | 'io' | 'tips'>('start')
+  const [guidePage, setGuidePage] = useState<'start' | 'nodes' | 'links' | 'keywords' | 'canvas' | 'io' | 'tips'>('start')
   const [guideIconFailed, setGuideIconFailed] = useState<boolean>(false)
+  const [showAnalysisPanel, setShowAnalysisPanel] = useState<boolean>(false)
+  const [expandedAnalysisSections, setExpandedAnalysisSections] = useState<Set<string>>(new Set(['system', 'structure', 'completeness', 'organization']))
+  const [colorTopicAssignments, setColorTopicAssignments] = useState<Record<string, string>>({})
 
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const interactionStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -172,6 +175,353 @@ function App() {
     () => stickyNotes.find((s) => s.id === activeStickyId) ?? null,
     [activeStickyId, stickyNotes]
   )
+
+  // Analysis data computation - meaningful insights
+  const analysisData = useMemo(() => {
+    if (nodes.length === 0) {
+      return {
+        system: { totalElements: 0, isEmpty: true },
+        structure: { insights: [], recommendations: [] },
+        completeness: { insights: [], score: 0 },
+        organization: { insights: [], recommendations: [] }
+      }
+    }
+
+    // System Overview
+    const totalElements = nodes.length + edges.length + stickyNotes.length
+    const isEmpty = totalElements === 0
+
+    // Structure Analysis - meaningful network insights
+    const connectionCounts = nodes.map(node => ({
+      nodeId: node.id,
+      title: node.title,
+      count: edges.filter(e => e.sourceId === node.id || e.targetId === node.id).length
+    })).sort((a, b) => b.count - a.count)
+    
+    const isolatedNodes = connectionCounts.filter(n => n.count === 0)
+    const hubNodes = connectionCounts.filter(n => n.count >= 3)
+    const mostConnected = connectionCounts[0]
+    const top5Connected = connectionCounts.slice(0, 5).filter(n => n.count > 0)
+    
+    // Calculate network density
+    const maxPossibleConnections = nodes.length * (nodes.length - 1) / 2
+    const density = maxPossibleConnections > 0 ? Math.round((edges.length / maxPossibleConnections) * 100) : 0
+    
+    // Identify clusters (nodes with similar tags)
+    const tagGroups = new Map<string, string[]>()
+    nodes.forEach(node => {
+      node.tags.forEach(tag => {
+        if (!tagGroups.has(tag)) tagGroups.set(tag, [])
+        tagGroups.get(tag)!.push(node.title)
+      })
+    })
+    const significantClusters = Array.from(tagGroups.entries())
+      .filter(([_, nodeList]) => nodeList.length >= 2)
+      .map(([tag, nodeList]) => ({ tag, count: nodeList.length }))
+      .sort((a, b) => b.count - a.count)
+
+    const structureInsights = []
+    const structureRecommendations = []
+    
+    if (isolatedNodes.length > 0) {
+      structureInsights.push(`${isolatedNodes.length} isolated nodes detected`)
+      structureRecommendations.push('Consider connecting isolated nodes to show their relationships')
+    }
+    
+    if (hubNodes.length > 0) {
+      structureInsights.push(`${hubNodes.length} hub nodes found (3+ connections)`)
+      if (hubNodes.length === 1) {
+        structureRecommendations.push('Consider adding more hub nodes to distribute connectivity')
+      }
+    }
+    
+    if (density < 20) {
+      structureInsights.push('Sparse network - low connectivity between elements')
+      structureRecommendations.push('Add more connections to show relationships between components')
+    } else if (density > 60) {
+      structureInsights.push('Dense network - high interconnectivity')
+      structureRecommendations.push('Consider grouping related elements or simplifying connections')
+    }
+
+    if (significantClusters.length > 0) {
+      structureInsights.push(`${significantClusters.length} distinct clusters identified`)
+    }
+
+    // Completeness Analysis - actionable content insights
+    const nodesWithDescriptions = nodes.filter(n => n.description.trim().length > 0).length
+    const completenessScore = Math.round((nodesWithDescriptions / nodes.length) * 100)
+    
+    const nodesWithTags = nodes.filter(n => n.tags.length > 0).length
+    const tagCompleteness = Math.round((nodesWithTags / nodes.length) * 100)
+    
+    const notesWithContent = stickyNotes.filter(n => n.content.trim().length > 0).length
+    const noteUtilization = stickyNotes.length > 0 ? Math.round((notesWithContent / stickyNotes.length) * 100) : 100
+
+    const completenessInsights = []
+    
+    if (completenessScore < 30) {
+      completenessInsights.push('Most nodes lack descriptions - add context for better understanding')
+    } else if (completenessScore < 70) {
+      completenessInsights.push('Some nodes need descriptions to improve clarity')
+    } else {
+      completenessInsights.push('Good documentation - most nodes have descriptions')
+    }
+    
+    if (tagCompleteness < 50) {
+      completenessInsights.push('Add tags to categorize and organize your components')
+    } else {
+      completenessInsights.push('Well-tagged system helps with organization')
+    }
+    
+    if (stickyNotes.length > notesWithContent && stickyNotes.length > 0) {
+      completenessInsights.push(`${stickyNotes.length - notesWithContent} empty notes can be removed or filled`)
+    }
+
+    // Tag and Color Analysis - user-requested insights
+    const allTags = nodes.flatMap(n => n.tags)
+    const uniqueTags = [...new Set(allTags)]
+    const top10Tags = uniqueTags.map(tag => ({
+      tag,
+      count: allTags.filter(t => t === tag).length
+    })).sort((a, b) => b.count - a.count).slice(0, 10)
+    
+    // Color analysis with topic grouping
+    const colorCounts = nodes.reduce((acc, node) => {
+      acc[node.color] = (acc[node.color] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    
+    const colorAnalysis = Object.entries(colorCounts)
+      .sort(([,a], [,b]) => b - a)
+      .map(([color, count]) => ({
+        color,
+        count,
+        percentage: Math.round((count / nodes.length) * 100),
+        // Find most common tags for nodes of this color
+        commonTags: nodes
+          .filter(n => n.color === color)
+          .flatMap(n => n.tags)
+          .reduce((acc, tag) => {
+            acc[tag] = (acc[tag] || 0) + 1
+            return acc
+          }, {} as Record<string, number>)
+      }))
+    
+    const topColors = colorAnalysis.slice(0, 5)
+
+    const organizationInsights = []
+    const organizationRecommendations = []
+    
+    if (uniqueTags.length > nodes.length * 0.8) {
+      organizationInsights.push('Too many unique tags - consider consolidating similar ones')
+      organizationRecommendations.push('Standardize tag names for better organization')
+    } else if (uniqueTags.length < nodes.length * 0.2 && nodes.length > 5) {
+      organizationInsights.push('Limited tag variety - consider more specific categorization')
+      organizationRecommendations.push('Add more descriptive tags to improve searchability')
+    }
+    
+    // Check for naming patterns
+    const nodeNames = nodes.map(n => n.title.toLowerCase())
+    const hasNumbering = nodeNames.some(name => /\d/.test(name))
+    const hasConsistentNaming = nodeNames.some(name => 
+      nodeNames.filter(n => n.includes(name.split(/\d/)[0]) || name.includes(n.split(/\d/)[0])).length > 1
+    )
+    
+    if (hasNumbering && !hasConsistentNaming) {
+      organizationRecommendations.push('Consider consistent naming patterns for related components')
+    }
+    
+    // Connection insights
+    const directionalEdges = edges.filter(e => e.direction !== 'none').length
+    if (directionalEdges < edges.length * 0.3 && edges.length > 3) {
+      organizationRecommendations.push('Add directional arrows to show process flow or data direction')
+    }
+
+    return {
+      system: {
+        totalElements,
+        isEmpty,
+        totalNodes: nodes.length,
+        totalConnections: edges.length,
+        totalColors: Object.keys(colorCounts).length,
+        networkDensity: density,
+        mostConnected: mostConnected?.count > 0 ? mostConnected : null
+      },
+      structure: {
+        insights: structureInsights,
+        recommendations: structureRecommendations,
+        top5Connected,
+        hubNodes: hubNodes.slice(0, 3),
+        clusters: significantClusters.slice(0, 3),
+        isolatedCount: isolatedNodes.length
+      },
+      completeness: {
+        insights: completenessInsights,
+        score: Math.round((completenessScore + tagCompleteness + noteUtilization) / 3),
+        descriptionCompleteness: completenessScore,
+        tagCompleteness,
+        noteUtilization
+      },
+      organization: {
+        insights: organizationInsights,
+        recommendations: organizationRecommendations,
+        top10Tags,
+        topColors,
+        tagVariety: uniqueTags.length,
+        hasGoodStructure: significantClusters.length > 0 && isolatedNodes.length < nodes.length * 0.3
+      }
+    }
+  }, [nodes, edges, stickyNotes])
+
+  // Analysis panel helper functions
+  function toggleAnalysisSection(section: string) {
+    const newSections = new Set(expandedAnalysisSections)
+    if (newSections.has(section)) {
+      newSections.delete(section)
+    } else {
+      newSections.add(section)
+    }
+    setExpandedAnalysisSections(newSections)
+  }
+
+  function highlightNode(nodeId: string) {
+    setActiveNodeId(nodeId)
+    setActiveEdgeId(null)
+    setActiveStickyId(null)
+    setShowAnalysisPanel(false)
+  }
+
+  function assignColorToTopic(color: string, topic: string) {
+    setColorTopicAssignments(prev => ({
+      ...prev,
+      [color]: topic
+    }))
+  }
+
+  function removeColorAssignment(color: string) {
+    setColorTopicAssignments(prev => {
+      const newAssignments = { ...prev }
+      delete newAssignments[color]
+      return newAssignments
+    })
+  }
+
+  function getTopicForColor(color: string): string {
+    // Check manual assignments first
+    if (colorTopicAssignments[color]) {
+      return colorTopicAssignments[color]
+    }
+    
+    // Fall back to automatic detection from most common tag
+    const nodesWithColor = nodes.filter(n => n.color === color)
+    if (nodesWithColor.length === 0) return ''
+    
+    const tagCounts: Record<string, number> = {}
+    nodesWithColor.forEach(node => {
+      node.tags.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1
+      })
+    })
+    
+    const sortedTags = Object.entries(tagCounts).sort(([,a], [,b]) => b - a)
+    return sortedTags[0]?.[0] || ''
+  }
+
+  function exportAnalysis() {
+    const data = analysisData
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
+    
+    let report = `Circuitboard Analysis Report - ${timestamp}\n`
+    report += `${'='.repeat(60)}\n\n`
+    
+    if (data.system.isEmpty) {
+      report += `EMPTY DIAGRAM\n`
+      report += `Start by adding nodes to begin your system design.\n`
+      const blob = new Blob([report], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `circuitboard-analysis-${timestamp}.txt`
+      a.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+    
+    report += `SYSTEM OVERVIEW\n`
+    report += `- Total elements: ${data.system.totalElements}\n`
+    report += `- Network density: ${data.system.networkDensity}%\n`
+    if (data.system.mostConnected) {
+      report += `- Most connected: "${data.system.mostConnected.title}" (${data.system.mostConnected.count} connections)\n`
+    }
+    report += `\n`
+    
+    report += `STRUCTURE ANALYSIS\n`
+    if (data.structure.insights.length > 0) {
+      report += `Key insights:\n`
+      data.structure.insights.forEach(insight => {
+        report += `  • ${insight}\n`
+      })
+    }
+    if (data.structure.recommendations.length > 0) {
+      report += `Recommendations:\n`
+      data.structure.recommendations.forEach(rec => {
+        report += `  → ${rec}\n`
+      })
+    }
+    if (data.structure.hubNodes && data.structure.hubNodes.length > 0) {
+      report += `Hub nodes:\n`
+      data.structure.hubNodes.forEach(hub => {
+        report += `  • ${hub.title} (${hub.count} connections)\n`
+      })
+    }
+    if (data.structure.clusters && data.structure.clusters.length > 0) {
+      report += `Clusters:\n`
+      data.structure.clusters.forEach(cluster => {
+        report += `  • ${cluster.tag}: ${cluster.count} nodes\n`
+      })
+    }
+    report += `\n`
+    
+    report += `COMPLETENESS ANALYSIS\n`
+    report += `Overall score: ${data.completeness.score}%\n`
+    if (data.completeness.insights.length > 0) {
+      data.completeness.insights.forEach(insight => {
+        report += `  • ${insight}\n`
+      })
+    }
+    report += `  • Description coverage: ${data.completeness.descriptionCompleteness}%\n`
+    report += `  • Tag coverage: ${data.completeness.tagCompleteness}%\n`
+    report += `  • Note utilization: ${data.completeness.noteUtilization}%\n`
+    report += `\n`
+    
+    report += `ORGANIZATION ANALYSIS\n`
+    if (data.organization.insights.length > 0) {
+      report += `Current state:\n`
+      data.organization.insights.forEach(insight => {
+        report += `  • ${insight}\n`
+      })
+    }
+    if (data.organization.recommendations.length > 0) {
+      report += `Recommendations:\n`
+      data.organization.recommendations.forEach(rec => {
+        report += `  → ${rec}\n`
+      })
+    }
+    if (data.organization.top10Tags && data.organization.top10Tags.length > 0) {
+      report += `Most used tags:\n`
+      data.organization.top10Tags.forEach((tag: {tag: string, count: number}) => {
+        report += `  • ${tag.tag} (${tag.count} uses)\n`
+      })
+    }
+    
+    const blob = new Blob([report], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `circuitboard-analysis-${timestamp}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   function addNode() {
     const container = canvasRef.current
@@ -548,19 +898,129 @@ function App() {
     setActiveStickyId(null)
   }
 
+  // Generate legend data for export
+  function generateLegendData() {
+    const colorTopics: { color: string; topic: string }[] = []
+    
+    // Get all unique colors used
+    const usedColors = [...new Set(nodes.map(n => n.color))]
+    
+    usedColors.forEach(color => {
+      const topic = getTopicForColor(color)
+      if (topic) {
+        colorTopics.push({ color, topic })
+      }
+    })
+    
+    return colorTopics
+  }
+
   async function exportPNG() {
     const el = canvasRef.current
     if (!el) return
-    // Render the visible canvas area to a high-DPI image
-    const canvas = await html2canvas(el, { useCORS: true, scale: 2 })
-    const url = canvas.toDataURL('image/png')
-    const ts = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const name = `circuitboard-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.png`
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    a.click()
+    
+    // Store original zoom and pan
+    const originalZoom = zoom
+    const originalPan = { ...pan }
+    
+    try {
+      // Generate legend data
+      const legendData = generateLegendData()
+      const hasLegend = legendData.length > 0
+      
+      if (hasLegend) {
+        // Calculate bounds of all content
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+        nodes.forEach(node => {
+          const radius = node.size / 2
+          minX = Math.min(minX, node.x - radius)
+          maxX = Math.max(maxX, node.x + radius)
+          minY = Math.min(minY, node.y - radius)
+          maxY = Math.max(maxY, node.y + radius)
+        })
+        stickyNotes.forEach(note => {
+          minX = Math.min(minX, note.x)
+          maxX = Math.max(maxX, note.x + note.width)
+          minY = Math.min(minY, note.y)
+          maxY = Math.max(maxY, note.y + note.height)
+        })
+        
+        if (nodes.length > 0 || stickyNotes.length > 0) {
+          const contentWidth = maxX - minX
+          const contentHeight = maxY - minY
+          const canvasRect = el.getBoundingClientRect()
+          
+          // Reserve space for legend (approximately 200px wide, 30px per item + padding)
+          const legendWidth = 220
+          // const legendHeight = Math.max(legendData.length * 35 + 40, 100)
+          
+          // Calculate zoom to fit content + legend with padding
+          const padding = 50
+          const availableWidth = canvasRect.width - legendWidth - padding * 3
+          const availableHeight = canvasRect.height - padding * 2
+          
+          const scaleX = contentWidth > 0 ? availableWidth / contentWidth : 1
+          const scaleY = contentHeight > 0 ? availableHeight / contentHeight : 1
+          const newZoom = Math.min(scaleX, scaleY, originalZoom) // Don't zoom in more than current
+          
+          // Center content in available area
+          const centerX = (minX + maxX) / 2
+          const centerY = (minY + maxY) / 2
+          const viewportCenterX = (canvasRect.width - legendWidth) / 2
+          const viewportCenterY = canvasRect.height / 2
+          
+          const newPanX = (viewportCenterX / newZoom) - centerX
+          const newPanY = (viewportCenterY / newZoom) - centerY
+          
+          // Apply new zoom and pan
+          setZoom(newZoom)
+          setPan({ x: newPanX, y: newPanY })
+          
+          // Wait for DOM update
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      
+      // Create and show legend overlay temporarily
+      let legendOverlay: HTMLDivElement | null = null
+      if (hasLegend) {
+        legendOverlay = document.createElement('div')
+        legendOverlay.className = 'export-legend'
+        legendOverlay.innerHTML = `
+          <div class="legend-title">Legend</div>
+          ${legendData.map(({ color, topic }) => `
+            <div class="legend-item">
+              <div class="legend-color" style="background-color: ${color}"></div>
+              <div class="legend-text">${topic}</div>
+            </div>
+          `).join('')}
+        `
+        el.appendChild(legendOverlay)
+      }
+      
+      // Render the canvas with legend
+      const canvas = await html2canvas(el, { useCORS: true, scale: 2 })
+      
+      // Remove legend overlay
+      if (legendOverlay) {
+        el.removeChild(legendOverlay)
+      }
+      
+      // Create download
+      const url = canvas.toDataURL('image/png')
+      const ts = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const name = `circuitboard-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.png`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      
+    } finally {
+      // Restore original zoom and pan
+      setZoom(originalZoom)
+      setPan(originalPan)
+    }
   }
 
   // --- Chat / AI ---
@@ -602,6 +1062,14 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // Hide/show Buy Me a Coffee button based on analysis panel
+  useEffect(() => {
+    const bmcRoot = document.getElementById('bmc-root')
+    if (bmcRoot) {
+      bmcRoot.style.display = showAnalysisPanel ? 'none' : 'block'
+    }
+  }, [showAnalysisPanel])
+
   return (
     <div className="app-root">
       <div className="top-title">
@@ -630,6 +1098,7 @@ function App() {
       </div>
 
       <div className="top-actions">
+        <button className="action-btn btn-purple" onClick={() => setShowAnalysisPanel(true)}>Analysis</button>
         <button className="action-btn btn-yellow" onClick={exportPNG}>Export</button>
         <button className="action-btn btn-green" onClick={generateSceneCode}>Save</button>
         <button className="action-btn btn-blue" onClick={() => setShowOpen(true)}>Open</button>
@@ -1204,14 +1673,27 @@ function App() {
                 })}
               </div>
               <div className="section">
-                <span className="label">Note</span>
+                <span className="label">Custom keywords</span>
                 <input
                   className="text-input"
                   type="text"
                   value={activeEdge.note}
                   onChange={(e) => updateActiveEdge((edge) => ({ ...edge, note: e.target.value }))}
-                  placeholder="Add a note for this link"
+                  placeholder="Add custom keywords for this link"
                 />
+              </div>
+              <div className="section">
+                <button 
+                  className="action-btn btn-red"
+                  onClick={() => {
+                    setEdges(prev => prev.filter(e => e.id !== activeEdge.id))
+                    setActiveEdgeId(null)
+                    setEdgeMenu(null)
+                  }}
+                  style={{ width: '100%', marginTop: '8px' }}
+                >
+                  Delete Connection
+                </button>
               </div>
             </div>
           )}
@@ -1231,7 +1713,7 @@ function App() {
                 <button className={`chip ${guidePage === 'start' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('start')}>Getting started</button>
                 <button className={`chip ${guidePage === 'nodes' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('nodes')}>Nodes</button>
                 <button className={`chip ${guidePage === 'links' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('links')}>Links</button>
-                <button className={`chip ${guidePage === 'notes' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('notes')}>Sticky notes</button>
+                <button className={`chip ${guidePage === 'keywords' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('keywords')}>Sticky notes</button>
                 <button className={`chip ${guidePage === 'canvas' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('canvas')}>Canvas</button>
                 <button className={`chip ${guidePage === 'io' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('io')}>Save/Open/Export</button>
                 <button className={`chip ${guidePage === 'tips' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('tips')}>Tips</button>
@@ -1268,12 +1750,12 @@ function App() {
                   <li>Direction: none, → (source→target), or ← (target→source). Set this in the inline edge menu.</li>
                   <li>Style: straight or curved. Curved links reduce overlap and improve readability in dense areas.</li>
                   <li>Keywords: toggle common semantics like “increases” or “decreases” to clarify the relationship.</li>
-                  <li>Notes: add a short free‑text label shown near the link midpoint.</li>
+                  <li>Custom keywords: add a short free‑text label shown near the link midpoint.</li>
                   <li>Edit: click a link to open the inline menu at its midpoint; click outside to dismiss.</li>
               </ul>
             </div>
             )}
-            {guidePage === 'notes' && (
+            {guidePage === 'keywords' && (
               <div className="modal-section">
                 <div className="field-label">Sticky notes</div>
                 <ul>
@@ -1298,7 +1780,7 @@ function App() {
               <div className="modal-section">
                 <div className="field-label">Save, open, and export</div>
                 <ul>
-                  <li>Save: generates a compact code you can copy. It includes nodes, links, notes, pan, and zoom.</li>
+                  <li>Save: generates a compact code you can copy. It includes nodes, links, custom keywords, pan, and zoom.</li>
                   <li>Open: paste a code to restore the full scene exactly as saved.</li>
                   <li>Export: downloads a high‑DPI PNG of the current canvas (uses your current pan/zoom).</li>
                 </ul>
@@ -1310,7 +1792,7 @@ function App() {
               <ul>
                   <li>Hierarchy: use size and color to signal importance; avoid too many bright colors.</li>
                   <li>Layout: space related nodes evenly; use curved links to avoid visual tangles.</li>
-                  <li>Semantics: prefer keywords and short notes over long paragraphs on links.</li>
+                  <li>Semantics: prefer keywords and short custom keywords over long paragraphs on links.</li>
               </ul>
             </div>
             )}
@@ -1327,19 +1809,30 @@ function App() {
             </div>
             <div className="modal-section">
               <div className="field-label">Version</div>
-              <div>1.0.0</div>
+              <div>1.1.0</div>
             </div>
             <div className="modal-section">
-              <div className="field-label">Current features</div>
+              <div className="field-label">🆕 What's New in 1.1.0</div>
+              <ul>
+                <li><strong>Analysis Tool:</strong> Comprehensive insights panel with system metrics, connection analysis, tag distribution, and network structure insights.</li>
+                <li><strong>Color-to-Topic Assignment:</strong> Automatic color categorization with manual override capability. Colors automatically detect their most common tag, or you can assign custom topics.</li>
+                <li><strong>Enhanced Export:</strong> Image exports now include color legend showing topic assignments with intelligent auto-zoom to fit content.</li>
+                <li><strong>Delete Connections:</strong> Added delete button directly in the arrow menu for easy connection removal.</li>
+                <li><strong>UI Improvements:</strong> Better terminology ("Custom keywords" instead of "Notes"), cleaner interface, and improved user experience.</li>
+              </ul>
+            </div>
+            <div className="modal-section">
+              <div className="field-label">All features</div>
               <ul>
                 <li>Nodes: add, drag, resize, edit name/color/size/description/tags.</li>
-                <li>Links: create, set direction (→/←), style (straight/curved), keywords, note.</li>
+                <li>Links: create, set direction (→/←), style (straight/curved), keywords, custom keywords, delete connections.</li>
                 <li>Sticky notes: add, resize, edit in Markdown with live preview.</li>
                 <li>Canvas: pan and zoom with on-screen controls.</li>
                 <li>Save/Open: export scene to a code and restore from it.</li>
                 <li>Trash zone: drop a dragging node or note to delete quickly.</li>
                 <li>Color tools: palette and custom color picker.</li>
-                <li>Export: download the current canvas as an image.</li>
+                <li>Export: download the current canvas as an image with color legend.</li>
+                <li>Analysis: real-time insights, network analysis, color categorization.</li>
                 <li>Docs and Updates modals for guidance and messages.</li>
               </ul>
             </div>
@@ -1415,6 +1908,299 @@ function App() {
             <path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
           </svg>
         </div>
+      )}
+
+      {/* Analysis Panel */}
+      {showAnalysisPanel && (
+        <>
+          <div className="analysis-overlay" onClick={() => setShowAnalysisPanel(false)} />
+          <div className="analysis-panel">
+            <div className="analysis-header">
+              <h3>System Analysis</h3>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="action-btn" onClick={exportAnalysis} title="Export detailed analysis report">
+                  Export Report
+                </button>
+                <button className="close-btn" onClick={() => setShowAnalysisPanel(false)} aria-label="Close">
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="analysis-content">
+              {analysisData.system.isEmpty ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon">◯</div>
+                  <h4>No Elements to Analyze</h4>
+                  <p>Start building your system by adding nodes and connections to see meaningful insights here.</p>
+                </div>
+              ) : (
+                <>
+                  {/* System Overview */}
+                  <div className="analysis-section">
+                    <button 
+                      className="section-header"
+                      onClick={() => toggleAnalysisSection('system')}
+                    >
+                      <span>System Overview</span>
+                      <span className={`section-toggle ${expandedAnalysisSections.has('system') ? 'expanded' : ''}`}>
+                        {expandedAnalysisSections.has('system') ? '▼' : '▶'}
+                      </span>
+                    </button>
+                    {expandedAnalysisSections.has('system') && (
+                      <div className="section-content">
+                        <div className="metric-grid">
+                          <div className="metric-card">
+                            <div className="metric-value">{analysisData.system.totalNodes}</div>
+                            <div className="metric-label">Total Nodes</div>
+                          </div>
+                          <div className="metric-card">
+                            <div className="metric-value">{analysisData.system.totalConnections}</div>
+                            <div className="metric-label">Total Connections</div>
+                          </div>
+                          <div className="metric-card">
+                            <div className="metric-value">{analysisData.system.totalColors}</div>
+                            <div className="metric-label">Colors Used</div>
+                          </div>
+                          <div className="metric-card">
+                            <div className="metric-value">{analysisData.system.networkDensity}%</div>
+                            <div className="metric-label">Network Density</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Top Connected Nodes */}
+                  <div className="analysis-section">
+                    <button 
+                      className="section-header"
+                      onClick={() => toggleAnalysisSection('structure')}
+                    >
+                      <span>Most Connected Nodes</span>
+                      <span className={`section-toggle ${expandedAnalysisSections.has('structure') ? 'expanded' : ''}`}>
+                        {expandedAnalysisSections.has('structure') ? '▼' : '▶'}
+                      </span>
+                    </button>
+                    {expandedAnalysisSections.has('structure') && (
+                      <div className="section-content">
+                        {analysisData.structure.top5Connected && analysisData.structure.top5Connected.length > 0 ? (
+                          <div className="top-connected-list">
+                            {analysisData.structure.top5Connected.map((node, index) => (
+                              <div key={node.nodeId} className="connected-node-item" onClick={() => highlightNode(node.nodeId)}>
+                                <div className="rank-badge">{index + 1}</div>
+                                <div className="node-info">
+                                  <div className="node-name">{node.title}</div>
+                                  <div className="node-connections">{node.count} connections</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="no-connections">
+                            No nodes have connections yet. Start linking nodes to see connection rankings.
+                          </div>
+                        )}
+
+                        {analysisData.structure.isolatedCount && analysisData.structure.isolatedCount > 0 && (
+                          <div className="warning-indicator">
+                            {analysisData.structure.isolatedCount} isolated nodes need connections
+                          </div>
+                        )}
+
+                        {analysisData.structure.insights.length > 0 && (
+                          <div className="insights-list">
+                            {analysisData.structure.insights.map((insight, index) => (
+                              <div key={index} className="insight-item">
+                                {insight}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Completeness Analysis */}
+                  <div className="analysis-section">
+                    <button 
+                      className="section-header"
+                      onClick={() => toggleAnalysisSection('completeness')}
+                    >
+                      <span>Documentation Quality</span>
+                      <span className={`section-toggle ${expandedAnalysisSections.has('completeness') ? 'expanded' : ''}`}>
+                        {expandedAnalysisSections.has('completeness') ? '▼' : '▶'}
+                      </span>
+                    </button>
+                    {expandedAnalysisSections.has('completeness') && (
+                      <div className="section-content">
+                        <div className="completeness-score">
+                          <div className="score-circle">
+                            <div className="score-value">{analysisData.completeness.score}%</div>
+                            <div className="score-label">Overall Score</div>
+                          </div>
+                        </div>
+
+                        <div className="completeness-breakdown">
+                          <div className="breakdown-item">
+                            <span>Description Coverage</span>
+                            <div className="breakdown-bar">
+                              <div className="breakdown-fill" style={{ width: `${analysisData.completeness.descriptionCompleteness}%` }} />
+                              <span className="breakdown-value">{analysisData.completeness.descriptionCompleteness}%</span>
+                            </div>
+                          </div>
+                          <div className="breakdown-item">
+                            <span>Tag Coverage</span>
+                            <div className="breakdown-bar">
+                              <div className="breakdown-fill" style={{ width: `${analysisData.completeness.tagCompleteness}%` }} />
+                              <span className="breakdown-value">{analysisData.completeness.tagCompleteness}%</span>
+                            </div>
+                          </div>
+                          <div className="breakdown-item">
+                            <span>Note Utilization</span>
+                            <div className="breakdown-bar">
+                              <div className="breakdown-fill" style={{ width: `${analysisData.completeness.noteUtilization}%` }} />
+                              <span className="breakdown-value">{analysisData.completeness.noteUtilization}%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {analysisData.completeness.insights.length > 0 && (
+                          <div className="insights-list">
+                            {analysisData.completeness.insights.map((insight, index) => (
+                              <div key={index} className="insight-item">
+                                {insight}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tags Analysis */}
+                  <div className="analysis-section">
+                    <button 
+                      className="section-header"
+                      onClick={() => toggleAnalysisSection('organization')}
+                    >
+                      <span>Most Common Tags</span>
+                      <span className={`section-toggle ${expandedAnalysisSections.has('organization') ? 'expanded' : ''}`}>
+                        {expandedAnalysisSections.has('organization') ? '▼' : '▶'}
+                      </span>
+                    </button>
+                    {expandedAnalysisSections.has('organization') && (
+                      <div className="section-content">
+                        {analysisData.organization.top10Tags && analysisData.organization.top10Tags.length > 0 ? (
+                          <div className="top-tags-list">
+                            {analysisData.organization.top10Tags.map(({ tag, count }, index) => (
+                              <div key={index} className="tag-rank-item">
+                                <div className="rank-badge">{index + 1}</div>
+                                <div className="tag-info">
+                                  <div className="tag-name">{tag}</div>
+                                  <div className="tag-count">{count} nodes</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="no-tags">
+                            No tags found. Add tags to your nodes to see tag distribution.
+                          </div>
+                        )}
+
+                        {/* Color Analysis with Topic Assignment */}
+                        {analysisData.organization.topColors && analysisData.organization.topColors.length > 0 && (
+                          <div className="color-analysis-section">
+                            <div className="subsection-title">Color-to-Topic Assignment</div>
+                            <div className="color-assignment-list">
+                              {analysisData.organization.topColors.map(({ color, count, percentage }, index) => {
+                                const currentTopic = getTopicForColor(color)
+                                const isManuallyAssigned = colorTopicAssignments[color] !== undefined
+                                const allTags = [...new Set(nodes.flatMap(n => n.tags))].sort()
+                                
+                                return (
+                                  <div key={index} className="color-assignment-item">
+                                    <div className="assignment-color-sample" style={{ backgroundColor: color }} />
+                                    <div className="assignment-content">
+                                      <div className="color-header">
+                                        <div className="color-details">
+                                          <div className="color-name">{color}</div>
+                                          <div className="color-stats">{count} nodes ({percentage}%)</div>
+                                        </div>
+                                      </div>
+                                      
+                                      <div className="topic-assignment">
+                                        <select 
+                                          className="topic-select"
+                                          value={currentTopic || ''}
+                                          onChange={(e) => {
+                                            if (e.target.value === '') {
+                                              removeColorAssignment(color)
+                                            } else {
+                                              assignColorToTopic(color, e.target.value)
+                                            }
+                                          }}
+                                        >
+                                          <option value="">{currentTopic ? 'Use automatic assignment' : 'No topic assigned'}</option>
+                                          {allTags.map(tag => (
+                                            <option key={tag} value={tag}>{tag}</option>
+                                          ))}
+                                          <option value="__custom__">Custom topic...</option>
+                                        </select>
+                                        
+                                        <input
+                                          type="text"
+                                          className="custom-topic-input"
+                                          placeholder="Or enter custom topic"
+                                          onKeyPress={(e) => {
+                                            if (e.key === 'Enter') {
+                                              const value = (e.target as HTMLInputElement).value.trim()
+                                              if (value) {
+                                                assignColorToTopic(color, value)
+                                                ;(e.target as HTMLInputElement).value = ''
+                                              }
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                      
+                                      {currentTopic && (
+                                        <div className="topic-display">
+                                          <strong>{currentTopic}</strong>
+                                          {isManuallyAssigned && (
+                                            <button 
+                                              className="remove-assignment-btn"
+                                              onClick={() => removeColorAssignment(color)}
+                                              title="Clear manual assignment"
+                                            >
+                                              ✕
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            
+                            <div className="assignment-help">
+                              <div className="help-text">
+                                Colors are automatically assigned to their most common tag. 
+                                You can override this by selecting a different topic or entering a custom one.
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* AI chat removed */}
