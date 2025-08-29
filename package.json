@@ -6,8 +6,10 @@
     "node": ">=18"
   },
   "scripts": {
-    "postinstall": "npm --prefix backend ci --no-audit --no-fund && npm --prefix web ci --no-audit --no-fund && npm --prefix web run build",
-    "start": "node backend/index.js"
+    "postinstall": "npm --prefix web ci --no-audit --no-fund && npm --prefix web run build",
+    "start": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "preview": "npm --prefix web run preview"
   }
 }
 

@@ -1,6 +1,21 @@
-type ChatMode = 'agent' | 'chat' | 'insights'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import html2canvas from 'html2canvas'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import './App.css'
+
+function renderMarkdown(md: string): string {
+  return marked.parse(md, { async: false }) as string
+}
+
+function isBackgroundTarget(target: EventTarget): boolean {
+  if (!(target instanceof Element)) return false
+  // Not background if clicking inside any interactive element
+  if (target.closest('.node, .sticky-note, .handle, .sticky-resize, .node-resize, .edge, .edge-menu, .mode-dropdown, .chat-panel, .modal, .floating-pill, .zoom-controls')) {
+    return false
+  }
+  return true
+}
 
 type NodeItem = {
   id: string
@@ -11,6 +26,7 @@ type NodeItem = {
   description: string
   tags: string[]
   size: number
+  textColor?: '#000000' | '#ffffff'
 }
 
 type EdgeItem = {
@@ -20,17 +36,20 @@ type EdgeItem = {
   direction: 'none' | 'source-to-target' | 'target-to-source'
   keywords: string[]
   note: string
-  curve: 'straight' | 'curved'
+  controlX?: number
+  controlY?: number
 }
 
-type ChatMessage = {
-  role: 'user' | 'assistant'
+type StickyNote = {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
   content: string
 }
 
-type PendingActions = {
-  planText: string
-} | null
+// AI chat removed
 
 const COLORS = [
   '#1e90ff', // blue (default)
@@ -54,6 +73,29 @@ function App() {
     | { edgeId: string; x: number; y: number }
     | null
   >(null)
+  const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([])
+  const [activeStickyId, setActiveStickyId] = useState<string | null>(null)
+  const [draggingStickyId, setDraggingStickyId] = useState<string | null>(null)
+  const [stickyDragOffset, setStickyDragOffset] = useState<{ dx: number; dy: number } | null>(null)
+  const [resizingStickyId, setResizingStickyId] = useState<string | null>(null)
+  const [resizeCorner, setResizeCorner] = useState<'nw' | 'ne' | 'sw' | 'se' | null>(null)
+  const resizeStartRef = useRef<{
+    startX: number
+    startY: number
+    origX: number
+    origY: number
+    origW: number
+    origH: number
+  } | null>(null)
+  const [resizingNodeId, setResizingNodeId] = useState<string | null>(null)
+  const [nodeResizeCorner, setNodeResizeCorner] = useState<'nw' | 'ne' | 'sw' | 'se' | null>(null)
+  const nodeResizeStartRef = useRef<{
+    startX: number
+    startY: number
+    origX: number
+    origY: number
+    origSize: number
+  } | null>(null)
   const [zoom, setZoom] = useState<number>(1)
   const ZOOM_MIN = 0.5
   const ZOOM_MAX = 2
@@ -62,13 +104,35 @@ function App() {
   const [isPanning, setIsPanning] = useState<boolean>(false)
   const panStartRef = useRef<{ x: number; y: number } | null>(null)
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null)
+  const canvasDidPanRef = useRef<boolean>(false)
+  const [draggingEdgeControlId, setDraggingEdgeControlId] = useState<string | null>(null)
+  const edgeDragStartRef = useRef<{ id: string; startX: number; startY: number } | null>(null)
+
+  function setZoomAtCenter(nextZoom: number) {
+    const container = canvasRef.current
+    if (!container) {
+      setZoom(nextZoom)
+      return
+    }
+    const rect = container.getBoundingClientRect()
+    const sx = rect.width / 2
+    const sy = rect.height / 2
+    const prevZoom = zoom
+    const prevPan = pan
+    const sceneX = sx / prevZoom - prevPan.x
+    const sceneY = sy / prevZoom - prevPan.y
+    setZoom(nextZoom)
+    setPan({ x: sx / nextZoom - sceneX, y: sy / nextZoom - sceneY })
+  }
 
   function zoomIn() {
-    setZoom((z) => Math.min(ZOOM_MAX, parseFloat((z + ZOOM_STEP).toFixed(2))))
+    const next = Math.min(ZOOM_MAX, parseFloat((zoom + ZOOM_STEP).toFixed(2)))
+    if (next !== zoom) setZoomAtCenter(next)
   }
 
   function zoomOut() {
-    setZoom((z) => Math.max(ZOOM_MIN, parseFloat((z - ZOOM_STEP).toFixed(2))))
+    const next = Math.max(ZOOM_MIN, parseFloat((zoom - ZOOM_STEP).toFixed(2)))
+    if (next !== zoom) setZoomAtCenter(next)
   }
 
   const [linkingFrom, setLinkingFrom] = useState<
@@ -82,21 +146,19 @@ function App() {
   const [openCode, setOpenCode] = useState<string>("")
   const [openError, setOpenError] = useState<string | null>(null)
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false)
-  const [showChat, setShowChat] = useState<boolean>(false)
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [chatInput, setChatInput] = useState<string>("")
-  const [isSending, setIsSending] = useState<boolean>(false)
-  const chatEndRef = useRef<HTMLDivElement | null>(null)
-  const [autoApply, setAutoApply] = useState<boolean>(true)
-  const [pending, setPending] = useState<PendingActions>(null)
-  const [mode, setMode] = useState<ChatMode>('agent')
-  const [showModeMenu, setShowModeMenu] = useState<boolean>(false)
+  // AI chat removed
   const [showDocs, setShowDocs] = useState<boolean>(false)
   const [showUpdates, setShowUpdates] = useState<boolean>(false)
+  const [showStickyEditor, setShowStickyEditor] = useState<boolean>(false)
+  const [guidePage, setGuidePage] = useState<'start' | 'nodes' | 'links' | 'notes' | 'canvas' | 'io' | 'tips'>('start')
+  const [guideIconFailed, setGuideIconFailed] = useState<boolean>(false)
 
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const interactionStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef<boolean>(false)
+  const trashRef = useRef<HTMLDivElement | null>(null)
+  const [isOverTrash, setIsOverTrash] = useState<boolean>(false)
+  const suppressCanvasClickRef = useRef<boolean>(false)
 
   const activeNode = useMemo(
     () => nodes.find((n) => n.id === activeNodeId) ?? null,
@@ -105,6 +167,10 @@ function App() {
   const activeEdge = useMemo(
     () => edges.find((e) => e.id === activeEdgeId) ?? null,
     [activeEdgeId, edges]
+  )
+  const activeSticky = useMemo(
+    () => stickyNotes.find((s) => s.id === activeStickyId) ?? null,
+    [activeStickyId, stickyNotes]
   )
 
   function addNode() {
@@ -149,6 +215,68 @@ function App() {
     const pointerX = (e.clientX - containerRect.left) / zoom - pan.x
     const pointerY = (e.clientY - containerRect.top) / zoom - pan.y
     setPointerPos({ x: pointerX, y: pointerY })
+    if (draggingStickyId && stickyDragOffset) {
+      const newX = pointerX - stickyDragOffset.dx
+      const newY = pointerY - stickyDragOffset.dy
+      setStickyNotes((prev) => prev.map((s) => (s.id === draggingStickyId ? { ...s, x: newX, y: newY } : s)))
+      const start = interactionStartRef.current
+      if (start) {
+        const mdx = pointerX - start.x
+        const mdy = pointerY - start.y
+        if (!didDragRef.current && (Math.abs(mdx) > 3 || Math.abs(mdy) > 3)) didDragRef.current = true
+      }
+      return
+    }
+    if (resizingStickyId && resizeCorner && resizeStartRef.current) {
+      const { startX, startY, origX, origY, origW, origH } = resizeStartRef.current
+      const dx = pointerX - startX
+      const dy = pointerY - startY
+      setStickyNotes((prev) => prev.map((s) => {
+        if (s.id !== resizingStickyId) return s
+        let x = origX
+        let y = origY
+        let w = origW
+        let h = origH
+        if (resizeCorner === 'se') { w = Math.max(100, origW + dx); h = Math.max(80, origH + dy) }
+        if (resizeCorner === 'sw') { w = Math.max(100, origW - dx); h = Math.max(80, origH + dy); x = origX + dx }
+        if (resizeCorner === 'ne') { w = Math.max(100, origW + dx); h = Math.max(80, origH - dy); y = origY + dy }
+        if (resizeCorner === 'nw') { w = Math.max(100, origW - dx); h = Math.max(80, origH - dy); x = origX + dx; y = origY + dy }
+        return { ...s, x, y, width: w, height: h }
+      }))
+      if (!didDragRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) didDragRef.current = true
+      return
+    }
+    if (resizingNodeId && nodeResizeCorner && nodeResizeStartRef.current) {
+      const { startX, startY, origX, origY, origSize } = nodeResizeStartRef.current
+      const dx = pointerX - startX
+      const dy = pointerY - startY
+      const clamp = (v: number) => Math.min(200, Math.max(24, v))
+      setNodes((prev) => prev.map((n) => {
+        if (n.id !== resizingNodeId) return n
+        let size = origSize
+        let x = origX
+        let y = origY
+        if (nodeResizeCorner === 'se') {
+          size = clamp(Math.max(origSize + dx, origSize + dy))
+        }
+        if (nodeResizeCorner === 'sw') {
+          size = clamp(Math.max(origSize - dx, origSize + dy))
+          x = origX + (origSize - size)
+        }
+        if (nodeResizeCorner === 'ne') {
+          size = clamp(Math.max(origSize + dx, origSize - dy))
+          y = origY + (origSize - size)
+        }
+        if (nodeResizeCorner === 'nw') {
+          size = clamp(Math.max(origSize - dx, origSize - dy))
+          x = origX + (origSize - size)
+          y = origY + (origSize - size)
+        }
+        return { ...n, x, y, size }
+      }))
+      if (!didDragRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) didDragRef.current = true
+      return
+    }
     if (draggingNodeId && dragOffset) {
       const start = interactionStartRef.current
       if (start) {
@@ -171,19 +299,84 @@ function App() {
       const dxScene = dxScreen / zoom
       const dyScene = dyScreen / zoom
       setPan({ x: panStartRef.current.x + dxScene, y: panStartRef.current.y + dyScene })
+      if (!canvasDidPanRef.current && (Math.abs(dxScreen) > 3 || Math.abs(dyScreen) > 3)) {
+        canvasDidPanRef.current = true
+        suppressCanvasClickRef.current = true
+      }
+    }
+    // Dragging edge control point to curve edges
+    if (draggingEdgeControlId) {
+      setEdges((prev) => prev.map((ed) => ed.id === draggingEdgeControlId ? { ...ed, controlX: pointerX, controlY: pointerY } : ed))
+      const start = interactionStartRef.current
+      if (start) {
+        const dx = pointerX - start.x
+        const dy = pointerY - start.y
+        if (!didDragRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) didDragRef.current = true
+      }
+      return
+    }
+    // Promote to dragging if we started on an edge and moved enough
+    if (edgeDragStartRef.current) {
+      const { id, startX, startY } = edgeDragStartRef.current
+      const dx = pointerX - startX
+      const dy = pointerY - startY
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        setDraggingEdgeControlId(id)
+        interactionStartRef.current = { x: startX, y: startY }
+        didDragRef.current = true
+        // initialize control to current pointer
+        setEdges((prev) => prev.map((ed) => ed.id === id ? { ...ed, controlX: pointerX, controlY: pointerY } : ed))
+      }
+    }
+    // Over-trash detection during drag
+    if ((draggingNodeId || draggingStickyId) && trashRef.current) {
+      const r = trashRef.current.getBoundingClientRect()
+      // Expand hitbox slightly for easier drops
+      const expand = 6
+      const over = e.clientX >= r.left - expand && e.clientX <= r.right + expand && e.clientY >= r.top - expand && e.clientY <= r.bottom + expand
+      if (over !== isOverTrash) setIsOverTrash(over)
+    } else {
+      if (isOverTrash) setIsOverTrash(false)
     }
   }
 
   function onPointerUp() {
+    // If dropping into trash, delete dragged item
+    if (isOverTrash) {
+      if (draggingNodeId) {
+        setNodes((prev) => prev.filter((n) => n.id !== draggingNodeId))
+        setEdges((prev) => prev.filter((e) => e.sourceId !== draggingNodeId && e.targetId !== draggingNodeId))
+        setActiveNodeId(null)
+      }
+      if (draggingStickyId) {
+        setStickyNotes((prev) => prev.filter((s) => s.id !== draggingStickyId))
+        setActiveStickyId(null)
+      }
+    }
     setDraggingNodeId(null)
     setDragOffset(null)
+    setDraggingStickyId(null)
+    setStickyDragOffset(null)
+    setResizingStickyId(null)
+    setResizeCorner(null)
+    resizeStartRef.current = null
+    setResizingNodeId(null)
+    setNodeResizeCorner(null)
+    nodeResizeStartRef.current = null
     interactionStartRef.current = null
+    // no implicit note creation here; handled in onClick
     setIsPanning(false)
     panStartRef.current = null
     pointerStartRef.current = null
+    canvasDidPanRef.current = false
+    setIsOverTrash(false)
+    setDraggingEdgeControlId(null)
+    edgeDragStartRef.current = null
     // If we were linking, finalize on pointer up within canvas using last pointer pos
     if (linkingFrom && pointerPos) {
       finalizeLinkingAt(pointerPos.x, pointerPos.y)
+      // Suppress the subsequent background click so no sticky is created
+      suppressCanvasClickRef.current = true
     }
     setLinkingFrom(null)
   }
@@ -191,17 +384,39 @@ function App() {
   function openEditor(nodeId: string) {
     setActiveNodeId(nodeId)
     setActiveEdgeId(null)
+    setActiveStickyId(null)
   }
 
   function closeEditor() {
     setActiveNodeId(null)
     setActiveEdgeId(null)
     setEdgeMenu(null)
+    setActiveStickyId(null)
+    setShowStickyEditor(false)
   }
 
   function updateActiveNode(updater: (n: NodeItem) => NodeItem) {
     if (!activeNodeId) return
     setNodes((prev) => prev.map((n) => (n.id === activeNodeId ? updater(n) : n)))
+  }
+
+  function updateActiveSticky(updater: (s: StickyNote) => StickyNote) {
+    if (!activeStickyId) return
+    setStickyNotes((prev) => prev.map((s) => (s.id === activeStickyId ? updater(s) : s)))
+  }
+
+  function addStickyAt(px: number, py: number) {
+    const id = cryptoRandomId()
+    const note: StickyNote = {
+      id,
+      x: px - 120,
+      y: py - 80,
+      width: 240,
+      height: 160,
+      content: ''
+    }
+    setStickyNotes((prev) => [...prev, note])
+    setActiveStickyId(id)
   }
 
   function deleteActiveNode() {
@@ -256,17 +471,27 @@ function App() {
     if (!linkingFrom) return
     const target = findNodeAtPoint(px, py)
     if (target && target.id !== linkingFrom.nodeId) {
+      const sourceId = linkingFrom.nodeId
+      const targetId = target.id
+      setEdges((prev) => {
+        const exists = prev.some((e) => (
+          (e.sourceId === sourceId && e.targetId === targetId) ||
+          (e.sourceId === targetId && e.targetId === sourceId)
+        ))
+        if (exists) return prev
       const id = cryptoRandomId()
       const newEdge: EdgeItem = {
         id,
-        sourceId: linkingFrom.nodeId,
-        targetId: target.id,
+          sourceId,
+          targetId,
         direction: 'none',
         keywords: [],
         note: '',
-        curve: 'straight',
+          controlX: undefined,
+          controlY: undefined,
       }
-      setEdges((prev) => [...prev, newEdge])
+        return [...prev, newEdge]
+      })
     }
   }
 
@@ -278,6 +503,7 @@ function App() {
       edges,
       zoom,
       pan,
+      stickyNotes,
     }
     const json = JSON.stringify(scene)
     // Encode JSON to base64 with unicode safety
@@ -302,6 +528,7 @@ function App() {
       setEdges(data.edges)
       if (typeof data.zoom === 'number') setZoom(data.zoom)
       if (data.pan && typeof data.pan.x === 'number' && typeof data.pan.y === 'number') setPan(data.pan)
+      if (Array.isArray(data.stickyNotes)) setStickyNotes(data.stickyNotes)
       setShowOpen(false)
     } catch (e) {
       setOpenError('Invalid code. Make sure you pasted the full string.')
@@ -317,214 +544,55 @@ function App() {
     setActiveEdgeId(null)
     setEdgeMenu(null)
     setShowResetConfirm(false)
+    setStickyNotes([])
+    setActiveStickyId(null)
+  }
+
+  async function exportPNG() {
+    const el = canvasRef.current
+    if (!el) return
+    // Render the visible canvas area to a high-DPI image
+    const canvas = await html2canvas(el, { useCORS: true, scale: 2 })
+    const url = canvas.toDataURL('image/png')
+    const ts = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const name = `circuitboard-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.png`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
   }
 
   // --- Chat / AI ---
+  // AI chat removed
+
+  // Global pointer move listener to improve trash hover detection across elements
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages])
+    function onWindowPointerMove(ev: PointerEvent) {
+      if (!(draggingNodeId || draggingStickyId)) return
+      const el = trashRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const expand = 6
+      const over = ev.clientX >= r.left - expand && ev.clientX <= r.right + expand && ev.clientY >= r.top - expand && ev.clientY <= r.bottom + expand
+      if (over !== isOverTrash) setIsOverTrash(over)
+    }
+    window.addEventListener('pointermove', onWindowPointerMove)
+    return () => window.removeEventListener('pointermove', onWindowPointerMove)
+  }, [draggingNodeId, draggingStickyId, isOverTrash])
 
-  function buildSceneSummary() {
-    return {
-      nodes: nodes.map((n) => ({
-        id: n.id,
-        title: n.title,
-        color: n.color,
-        size: n.size,
-        x: n.x,
-        y: n.y,
-        description: n.description,
-        tags: n.tags,
-      })),
-      edges: edges.map((e) => ({
-        id: e.id,
-        sourceId: e.sourceId,
-        targetId: e.targetId,
-        direction: e.direction,
-        curve: e.curve,
-        keywords: e.keywords,
-        note: e.note,
-      })),
-    }
-  }
+  // AI chat removed
 
-  async function sendChat() {
-    if (!chatInput.trim()) return
-    const userMsg: ChatMessage = { role: 'user', content: chatInput.trim() }
-    setChatMessages((m) => [...m, userMsg])
-    setChatInput("")
-    setIsSending(true)
-    try {
-      const systemPrompt = `${buildSystemPrompt(mode)}\n\nYou are called Sparky. Refer to yourself as Sparky when appropriate.`
+  // AI chat removed
 
-      const scene = buildSceneSummary()
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      const resp = await fetch('/api/chat', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Current scene (JSON):\n${JSON.stringify(scene)}\n\nUser: ${userMsg.content}` },
-          ],
-          temperature: 0.3,
-        }),
-      })
-      if (!resp.ok) {
-        let detail = ''
-        try {
-          const err = await resp.json()
-          detail = typeof err?.detail === 'string' ? err.detail : JSON.stringify(err)
-        } catch {
-          detail = await resp.text()
-        }
-        setChatMessages((m) => [...m, { role: 'assistant', content: `Error from server: ${detail}` }])
-      } else {
-        const data = await resp.json()
-        const planText: string = data?.choices?.[0]?.message?.content
-          || data?.choices?.[0]?.delta?.content
-          || data?.message?.content
-          || '(no response)'
-        setChatMessages((m) => [...m, { role: 'assistant', content: planText }])
-        const wantsBuild = mode === 'agent' && detectBuildIntent(userMsg.content, planText)
-        if (wantsBuild) {
-          if (autoApply) {
-            await generateAndApplyActions(planText)
-          } else {
-            setPending({ planText })
-          }
-        }
-      }
-    } catch (err) {
-      setChatMessages((m) => [...m, { role: 'assistant', content: 'Sorry, I failed to respond.' }])
-    } finally {
-      setIsSending(false)
-    }
-  }
-
-  async function generateAndApplyActions(planText: string) {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const scene = buildSceneSummary()
-    const systemPrompt = `You are Sparky, a planner that converts a human plan into machine-editable actions for a system visualization app.
-Output ONLY valid JSON in the form {"actions":[ ... ]} with no prose. Supported actions:
- - {"type":"add_node","node":{"title":"","color":"#hex","size":64,"x":0,"y":0,"description":"","tags":["..."]}}
- - {"type":"add_edge","edge":{"sourceTitle":"","targetTitle":"","direction":"none|source-to-target|target-to-source","curve":"straight|curved","keywords":["..."],"note":""}}
-Use existing node titles for edges if nodes already exist. If coordinates are omitted, choose reasonable positions near related nodes.`
-    const resp = await fetch('/api/chat', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Scene: ${JSON.stringify(scene)}\nPlan: ${planText}\nReturn only JSON actions.` },
-        ],
-        temperature: 0.2,
-      }),
-    })
-    if (!resp.ok) {
-      let detail = await resp.text()
-      try { const j = await resp.clone().json(); detail = JSON.stringify(j) } catch {}
-      setChatMessages((m) => [...m, { role: 'assistant', content: `Failed to generate actions: ${detail}` }])
-      return
-    }
-    const data = await resp.json()
-    const text = data?.choices?.[0]?.message?.content || data?.message?.content || ''
-    if (!text) {
-      setChatMessages((m) => [...m, { role: 'assistant', content: '(no actions returned)' }])
-      return
-    }
-    // Reuse JSON extractor
-    const start = text.indexOf('{')
-    const end = text.lastIndexOf('}')
-    if (start === -1 || end === -1 || end <= start) {
-      setChatMessages((m) => [...m, { role: 'assistant', content: 'Could not parse actions JSON.' }])
-      return
-    }
-    try {
-      const obj = JSON.parse(text.slice(start, end + 1))
-      const actions = Array.isArray(obj?.actions) ? obj.actions : []
-      if (actions.length === 0) {
-        setChatMessages((m) => [...m, { role: 'assistant', content: 'No actions to apply.' }])
-        return
-      }
-      applyActions(actions)
-      setChatMessages((m) => [...m, { role: 'assistant', content: `Applied ${actions.length} change(s).` }])
-    } catch (e) {
-      setChatMessages((m) => [...m, { role: 'assistant', content: 'Invalid actions JSON.' }])
-    }
-  }
+  // AI chat removed
 
   // Intent detection: only build when user asks for it explicitly
-  function detectBuildIntent(userText: string, planText: string): boolean {
-    const text = `${userText}\n${planText}`.toLowerCase()
-    const negate = /(don't|do not|no\s+change|no changes|just\s+chat|talk|discuss|explain|analyze)/
-    if (negate.test(text)) return false
-    const trigger = /(create|add|link|connect|make|generate|build|attach|wire|insert|new\s+node|new\s+edge|add\s+node|add\s+edge|make\s+node|make\s+edge)/
-    return trigger.test(text)
-  }
+  // AI chat removed
 
-  function buildSystemPrompt(m: ChatMode): string {
-    const base = 'You are inside a system visualization app.'
-    if (m === 'agent') {
-      return `${base} When the user requests changes, first reply with a short human plan of what you will create (nodes/links). No JSON.`
-    }
-    if (m === 'insights') {
-      return `${base} Your job is to analyze the existing scene (nodes, links, notes, keywords) and answer questions about it: patterns, bottlenecks, suggestions. Do not propose changes unless explicitly asked.`
-    }
-    return `${base} Provide design tips, best practices, and guidance. Do not propose changes unless asked.`
-  }
+  // AI chat removed
 
-  function applyActions(actions: any[]) {
-    // Build title->id map for edges by title
-    const titleToId = new Map(nodes.map((n) => [n.title, n.id]))
-    let nextNodes: NodeItem[] = nodes.slice()
-    let nextEdges: EdgeItem[] = edges.slice()
-
-    for (const action of actions) {
-      if (action?.type === 'add_node' && action.node) {
-        const n = action.node
-        const id = cryptoRandomId()
-        const size = typeof n.size === 'number' ? n.size : 64
-        const x = typeof n.x === 'number' ? n.x : 100 + Math.random() * 200
-        const y = typeof n.y === 'number' ? n.y : 100 + Math.random() * 200
-        const newNode: NodeItem = {
-          id,
-          x,
-          y,
-          color: n.color || '#1e90ff',
-          title: n.title || `Node ${nextNodes.length + 1}`,
-          description: n.description || '',
-          tags: Array.isArray(n.tags) ? n.tags : [],
-          size,
-        }
-        nextNodes.push(newNode)
-        titleToId.set(newNode.title, newNode.id)
-      } else if (action?.type === 'add_edge' && action.edge) {
-        const e = action.edge
-        let sourceId = e.sourceId
-        let targetId = e.targetId
-        if (!sourceId && e.sourceTitle) sourceId = titleToId.get(e.sourceTitle)
-        if (!targetId && e.targetTitle) targetId = titleToId.get(e.targetTitle)
-        if (!sourceId || !targetId || sourceId === targetId) continue
-        const id = cryptoRandomId()
-        const newEdge: EdgeItem = {
-          id,
-          sourceId,
-          targetId,
-          direction: e.direction === 'source-to-target' || e.direction === 'target-to-source' ? e.direction : 'none',
-          curve: e.curve === 'curved' ? 'curved' : 'straight',
-          keywords: Array.isArray(e.keywords) ? e.keywords : [],
-          note: typeof e.note === 'string' ? e.note : '',
-        }
-        nextEdges.push(newEdge)
-      }
-    }
-    setNodes(nextNodes)
-    setEdges(nextEdges)
-    setPending(null)
-  }
+  // AI chat removed
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -538,15 +606,20 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
     <div className="app-root">
       <div className="top-title">
         <span className="brand-name">Circuitboard</span>
-        <img src="/stars.png" alt="" className="brand-stars" aria-hidden />
+        <img src="/circuit.png" alt="" className="brand-stars" aria-hidden />
       </div>
 
       <div className="top-left-actions">
-        <button className="round-icon" title="Documentation" onClick={() => setShowDocs(true)} aria-label="Open docs">
+        <button className="round-icon" title="Guide" onClick={() => setShowDocs(true)} aria-label="Open guide">
+          {!guideIconFailed ? (
+            <img src="/book.svg" width={20} height={20} alt="" onError={() => setGuideIconFailed(true)} />
+          ) : (
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 17v-1a4 4 0 1 0-4-4" stroke="#374151" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <circle cx="12" cy="19" r="1" fill="#374151"/>
+              <path d="M6 4h10v16H6z" stroke="#374151" strokeWidth="2" strokeLinejoin="round"/>
+              <path d="M4 6h2v12H4z" stroke="#374151" strokeWidth="2" strokeLinejoin="round"/>
+              <path d="M8 4v16" stroke="#374151" strokeWidth="2" strokeLinecap="round"/>
           </svg>
+          )}
         </button>
         <button className="round-icon" title="Updates" onClick={() => setShowUpdates(true)} aria-label="Open updates">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -557,6 +630,7 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
       </div>
 
       <div className="top-actions">
+        <button className="action-btn btn-yellow" onClick={exportPNG}>Export</button>
         <button className="action-btn btn-green" onClick={generateSceneCode}>Save</button>
         <button className="action-btn btn-blue" onClick={() => setShowOpen(true)}>Open</button>
         <button className="action-btn btn-red" onClick={() => setShowResetConfirm(true)}>Reset</button>
@@ -596,18 +670,45 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
           onPointerMove(e)
         }}
         onPointerDown={(e) => {
-          // Start panning only if clicking empty canvas (not a node)
-          if (e.target === e.currentTarget) {
+          // Start panning only if clicking true background (exclude nodes, notes, handles, UI)
+          if (isBackgroundTarget(e.target)) {
             setIsPanning(true)
             panStartRef.current = { ...pan }
             pointerStartRef.current = { x: e.clientX, y: e.clientY }
+            canvasDidPanRef.current = false
           }
         }}
-        onPointerUp={onPointerUp}
+        onPointerUp={(e) => {
+          const didPan = canvasDidPanRef.current
+          onPointerUp()
+          // If we panned or dragged an edge, prevent the immediate click from creating a sticky
+          if (didPan || draggingEdgeControlId || edgeDragStartRef.current) {
+            e.stopPropagation()
+            suppressCanvasClickRef.current = true
+            edgeDragStartRef.current = null
+          }
+        }}
         onPointerCancel={onPointerUp}
-        onClick={() => {
+        onClick={(e) => {
           setActiveNodeId(null)
           setActiveEdgeId(null)
+          setActiveStickyId(null)
+          // Suppress background actions after dragging/panning
+          if (didDragRef.current || canvasDidPanRef.current || suppressCanvasClickRef.current || draggingEdgeControlId || edgeDragStartRef.current) {
+            didDragRef.current = false
+            canvasDidPanRef.current = false
+            suppressCanvasClickRef.current = false
+            edgeDragStartRef.current = null
+            return
+          }
+          if (isBackgroundTarget(e.target)) {
+            const container = canvasRef.current
+            if (!container) return
+            const rect = container.getBoundingClientRect()
+            const px = (e.clientX - rect.left) / zoom - pan.x
+            const py = (e.clientY - rect.top) / zoom - pan.y
+            addStickyAt(px, py)
+          }
         }}
       >
         {showColorPicker && (
@@ -647,27 +748,57 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
             const a = { x: aCenter.x + ux * srcRadius, y: aCenter.y + uy * srcRadius }
             const b = { x: bCenter.x - ux * tgtRadius, y: bCenter.y - uy * tgtRadius }
             const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+            const control = {
+              x: typeof edge.controlX === 'number' ? edge.controlX : mid.x,
+              y: typeof edge.controlY === 'number' ? edge.controlY : mid.y,
+            }
             const isSelected = activeEdgeId === edge.id
             const keywordsText = edge.keywords.join(', ')
             const labelText = [keywordsText, edge.note].filter(Boolean).join(' • ')
             return (
               <g key={edge.id} className={`edge ${isSelected ? 'selected' : ''}`}
+                 onPointerDown={(e) => {
+                   // Prepare potential edge curve drag without immediately selecting
+                   e.stopPropagation()
+                   edgeDragStartRef.current = { id: edge.id, startX: mid.x, startY: mid.y }
+                 }}
                  onClick={(e) => {
                    e.stopPropagation()
+                   // Avoid click firing right after a drag
+                   if (didDragRef.current) { didDragRef.current = false; return }
                    setActiveEdgeId(edge.id)
                    setActiveNodeId(null)
-                   // open inline menu near midpoint
                    setEdgeMenu({ edgeId: edge.id, x: mid.x, y: mid.y - 16 })
                  }}>
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#374151" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                <path d={`M ${a.x} ${a.y} Q ${control.x} ${control.y} ${b.x} ${b.y}`} fill="none" stroke="#374151" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"
+                  onPointerDown={(e) => {
+                    e.stopPropagation()
+                    const target = e.currentTarget as SVGPathElement
+                    try { target.setPointerCapture(e.pointerId) } catch {}
+                    setDraggingEdgeControlId(edge.id)
+                    interactionStartRef.current = { x: control.x, y: control.y }
+                    didDragRef.current = false
+                  }}
+                  onPointerUp={(e) => {
+                    try { (e.currentTarget as SVGPathElement).releasePointerCapture(e.pointerId) } catch {}
+                    setDraggingEdgeControlId(null)
+                    // Suppress the next background click so no sticky note is created
+                    suppressCanvasClickRef.current = true
+                  }}
+                />
                 {/* Arrowheads as open V-shapes at the tip */}
                 {edge.direction === 'source-to-target' && (() => {
                   const arrowLength = 12
                   const arrowWidth = 10
+                  const tx = b.x - control.x
+                  const ty = b.y - control.y
+                  const tlen = Math.hypot(tx, ty) || 1
+                  const tux = tx / tlen
+                  const tuy = ty / tlen
                   const tipX = b.x
                   const tipY = b.y
-                  const baseX = tipX - ux * arrowLength
-                  const baseY = tipY - uy * arrowLength
+                  const baseX = tipX - tux * arrowLength
+                  const baseY = tipY - tuy * arrowLength
                   const perpX = -uy
                   const perpY = ux
                   const p1x = baseX + perpX * (arrowWidth / 2)
@@ -684,10 +815,15 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
                 {edge.direction === 'target-to-source' && (() => {
                   const arrowLength = 12
                   const arrowWidth = 10
+                  const tx = control.x - a.x
+                  const ty = control.y - a.y
+                  const tlen = Math.hypot(tx, ty) || 1
+                  const tux = tx / tlen
+                  const tuy = ty / tlen
                   const tipX = a.x
                   const tipY = a.y
-                  const baseX = tipX + ux * arrowLength
-                  const baseY = tipY + uy * arrowLength
+                  const baseX = tipX + tux * arrowLength
+                  const baseY = tipY + tuy * arrowLength
                   const perpX = -uy
                   const perpY = ux
                   const p1x = baseX + perpX * (arrowWidth / 2)
@@ -718,6 +854,77 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
             return <line x1={start.x} y1={start.y} x2={pointerPos.x} y2={pointerPos.y} stroke="#999" strokeDasharray="6 4" strokeWidth={2} />
           })()}
         </svg>
+        {stickyNotes.map((note) => (
+          <div
+            key={note.id}
+            className={`sticky-note ${draggingStickyId === note.id ? 'dragging' : ''}`}
+            style={{
+              transform: `translate(${note.x}px, ${note.y}px)`,
+              width: `${note.width}px`,
+              height: `${note.height}px`,
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              const container = canvasRef.current
+              if (!container) return
+              const rect = container.getBoundingClientRect()
+              const pointerX = (e.clientX - rect.left) / zoom - pan.x
+              const pointerY = (e.clientY - rect.top) / zoom - pan.y
+              setDraggingStickyId(note.id)
+              setStickyDragOffset({ dx: pointerX - note.x, dy: pointerY - note.y })
+              interactionStartRef.current = { x: pointerX, y: pointerY }
+              didDragRef.current = false
+              ;(e.target as HTMLDivElement).setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={(e) => {
+              onPointerMove(e)
+            }}
+            onPointerUp={(e) => {
+              try { (e.target as HTMLDivElement).releasePointerCapture(e.pointerId) } catch {}
+              onPointerUp()
+            }}
+            onDoubleClick={() => {
+              setActiveStickyId(note.id)
+              setShowStickyEditor(true)
+              setActiveNodeId(null)
+              setActiveEdgeId(null)
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (didDragRef.current) {
+                didDragRef.current = false
+                return
+              }
+              setActiveStickyId(note.id)
+              setActiveNodeId(null)
+              setActiveEdgeId(null)
+            }}
+            role="button"
+            aria-label="Sticky note"
+          >
+            <div className="sticky-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderMarkdown(note.content || '')) }} />
+            {(['nw','ne','sw','se'] as const).map((corner) => (
+              <div
+                key={corner}
+                className={`sticky-resize sticky-${corner}`}
+                onPointerDown={(e) => {
+                  e.stopPropagation()
+                  const container = canvasRef.current
+                  if (!container) return
+                  const rect = container.getBoundingClientRect()
+                  const pointerX = (e.clientX - rect.left) / zoom - pan.x
+                  const pointerY = (e.clientY - rect.top) / zoom - pan.y
+                  setResizingStickyId(note.id)
+                  setResizeCorner(corner)
+                  resizeStartRef.current = { startX: pointerX, startY: pointerY, origX: note.x, origY: note.y, origW: note.width, origH: note.height }
+                  didDragRef.current = false
+                  ;(e.target as HTMLDivElement).setPointerCapture(e.pointerId)
+                }}
+                onClick={(e) => { e.stopPropagation() }}
+              />
+            ))}
+          </div>
+        ))}
         {nodes.map((node) => (
           <div
             key={node.id}
@@ -731,6 +938,13 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
               color: node.color.toLowerCase() === '#000000' ? '#ffffff' : '#000000',
             }}
             onPointerDown={(e) => onPointerDownNode(e, node.id)}
+            onPointerMove={(e) => {
+              onPointerMove(e)
+            }}
+            onPointerUp={(e) => {
+              try { (e.target as HTMLDivElement).releasePointerCapture(e.pointerId) } catch {}
+              onPointerUp()
+            }}
             onDoubleClick={() => openEditor(node.id)}
             onClick={(e) => {
               e.stopPropagation()
@@ -745,6 +959,27 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
             aria-label={`Node ${node.title}`}
           >
             <span className="node-title">{node.title}</span>
+            {/* Node resize handles */}
+            {(['nw','ne','sw','se'] as const).map((corner) => (
+              <div
+                key={corner}
+                className={`node-resize node-${corner}`}
+                onPointerDown={(e) => {
+                  e.stopPropagation()
+                  const container = canvasRef.current
+                  if (!container) return
+                  const rect = container.getBoundingClientRect()
+                  const pointerX = (e.clientX - rect.left) / zoom - pan.x
+                  const pointerY = (e.clientY - rect.top) / zoom - pan.y
+                  setResizingNodeId(node.id)
+                  setNodeResizeCorner(corner)
+                  nodeResizeStartRef.current = { startX: pointerX, startY: pointerY, origX: node.x, origY: node.y, origSize: node.size }
+                  didDragRef.current = false
+                  ;(e.target as HTMLDivElement).setPointerCapture(e.pointerId)
+                }}
+                onClick={(e) => { e.stopPropagation() }}
+              />
+            ))}
             {/* Link handles */}
             <button
               className="handle handle-left"
@@ -755,13 +990,7 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
                 target.setPointerCapture(e.pointerId)
                 setLinkingFrom({ nodeId: node.id, side: 'left' })
               }}
-              onPointerUp={(e) => {
-                const container = canvasRef.current
-                if (!container) return
-                const rect = container.getBoundingClientRect()
-                finalizeLinkingAt((e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom)
-                setLinkingFrom(null)
-              }}
+              onPointerUp={() => { /* Let global onPointerUp finalize once */ }}
             />
             <button
               className="handle handle-right"
@@ -772,13 +1001,7 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
                 target.setPointerCapture(e.pointerId)
                 setLinkingFrom({ nodeId: node.id, side: 'right' })
               }}
-              onPointerUp={(e) => {
-                const container = canvasRef.current
-                if (!container) return
-                const rect = container.getBoundingClientRect()
-                finalizeLinkingAt((e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom)
-                setLinkingFrom(null)
-              }}
+              onPointerUp={() => { /* Let global onPointerUp finalize once */ }}
             />
             <button
               className="handle handle-top"
@@ -789,13 +1012,7 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
                 target.setPointerCapture(e.pointerId)
                 setLinkingFrom({ nodeId: node.id, side: 'top' })
               }}
-              onPointerUp={(e) => {
-                const container = canvasRef.current
-                if (!container) return
-                const rect = container.getBoundingClientRect()
-                finalizeLinkingAt((e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom)
-                setLinkingFrom(null)
-              }}
+              onPointerUp={() => { /* Let global onPointerUp finalize once */ }}
             />
             <button
               className="handle handle-bottom"
@@ -806,13 +1023,7 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
                 target.setPointerCapture(e.pointerId)
                 setLinkingFrom({ nodeId: node.id, side: 'bottom' })
               }}
-              onPointerUp={(e) => {
-                const container = canvasRef.current
-                if (!container) return
-                const rect = container.getBoundingClientRect()
-                finalizeLinkingAt((e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom)
-                setLinkingFrom(null)
-              }}
+              onPointerUp={() => { /* Let global onPointerUp finalize once */ }}
             />
           </div>
         ))}
@@ -923,6 +1134,42 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
         </div>
       )}
 
+      {activeSticky && showStickyEditor && (
+        <div className="modal-overlay" onClick={closeEditor}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Edit note</h3>
+              <button className="close-btn" onClick={closeEditor} aria-label="Close">×</button>
+            </div>
+            <div className="modal-section">
+              <label className="field-label" htmlFor="sticky-content">Markdown</label>
+              <textarea
+                id="sticky-content"
+                className="textarea-input"
+                rows={8}
+                value={activeSticky.content}
+                onChange={(e) => updateActiveSticky((s) => ({ ...s, content: e.target.value }))}
+                placeholder="Write in Markdown..."
+              />
+            </div>
+            <div className="modal-section">
+              <label className="field-label">Preview</label>
+              <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderMarkdown(activeSticky.content || '')) }} />
+            </div>
+            <div className="modal-section" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="action-btn btn-red" onClick={() => {
+                if (!activeStickyId) return
+                const ok = window.confirm('Delete this note?')
+                if (!ok) return
+                setStickyNotes((prev) => prev.filter((s) => s.id !== activeStickyId))
+                setActiveStickyId(null)
+                setShowStickyEditor(false)
+              }}>Delete note</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeEdge && (
         <>
           {/* Inline edge menu */}
@@ -944,18 +1191,7 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
                   </button>
                 ))}
               </div>
-              <div className="section">
-                <span className="label">Style</span>
-                {(['straight','curved'] as const).map((style) => (
-                  <button
-                    key={style}
-                    className={`chip ${activeEdge.curve === style ? 'chip-selected' : ''}`}
-                    onClick={() => updateActiveEdge((ed) => ({ ...ed, curve: style }))}
-                  >
-                    {style}
-                  </button>
-                ))}
-              </div>
+              {/* Style selection removed; drag the edge to curve */}
               <div className="section">
                 <span className="label">Keywords</span>
                 {KEYWORD_OPTIONS.map((k) => {
@@ -986,47 +1222,98 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
         <div className="modal-overlay" onClick={() => setShowDocs(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Welcome to Circuitboard</h3>
+              <h3>Guide</h3>
               <button className="close-btn" onClick={() => setShowDocs(false)} aria-label="Close">×</button>
             </div>
             <div className="modal-section">
-              <div className="field-label">Overview</div>
-              <div>
-                Circuitboard helps you visualize systems using nodes (circles) and links (lines/arrows). Use the left pill to add nodes and choose colors. Drag nodes to arrange. Click a node to edit its name, color, size, description, and tags.
+              <div className="field-label">Topics</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <button className={`chip ${guidePage === 'start' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('start')}>Getting started</button>
+                <button className={`chip ${guidePage === 'nodes' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('nodes')}>Nodes</button>
+                <button className={`chip ${guidePage === 'links' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('links')}>Links</button>
+                <button className={`chip ${guidePage === 'notes' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('notes')}>Sticky notes</button>
+                <button className={`chip ${guidePage === 'canvas' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('canvas')}>Canvas</button>
+                <button className={`chip ${guidePage === 'io' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('io')}>Save/Open/Export</button>
+                <button className={`chip ${guidePage === 'tips' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('tips')}>Tips</button>
               </div>
             </div>
+            {guidePage === 'start' && (
             <div className="modal-section">
-              <div className="field-label">Creating & Editing</div>
-              <ul>
-                <li>Click + to add a node. Choose a color or use the rainbow swatch for a custom color.</li>
-                <li>Drag a node to move it. Handles on the node edges let you create links to other nodes.</li>
-                <li>Click a link to edit direction (→ or ←), style (straight/curved), keywords (increases/decreases), and notes.</li>
-                <li>Click a node to rename, change color/size, add description/tags, or delete it.</li>
+                <div className="field-label">Getting started</div>
+                <ul>
+                  <li>Add nodes with the + button on the left pill. Choose a color from the palette; use the rainbow swatch for a custom color.</li>
+                  <li>Drag nodes to arrange your system. Use panning/zoom to frame the area you care about.</li>
+                  <li>Create links using the small circular handles on a node; release over another node to connect.</li>
+                  <li>Double‑click a node or note to open its editor. Press Esc to quickly close modals.</li>
               </ul>
             </div>
+            )}
+            {guidePage === 'nodes' && (
             <div className="modal-section">
-              <div className="field-label">Canvas</div>
-              <ul>
-                <li>Pan: click and drag the background.</li>
-                <li>Zoom: use the controls bottom-left.</li>
-                <li>Save/Open: top-right buttons generate a code or load one to restore a scene.</li>
+                <div className="field-label">Nodes</div>
+                <ul>
+                  <li>Name, Color, Size: define identity and emphasis. Larger nodes draw attention; white nodes get a subtle border; black nodes invert text color for readability.</li>
+                  <li>Description: add context for teammates. Keep it short; use notes for longer text.</li>
+                  <li>Tags: comma‑separated labels (e.g., marketing, backend). Tags render as chips and help scanning.</li>
+                  <li>Resize: drag any of the four corner squares. Sizes are clamped between 24 and 200 for readability.</li>
+                  <li>Delete: use the Delete node button in the editor or drag the node to the trash circle at the bottom.</li>
               </ul>
             </div>
+            )}
+            {guidePage === 'links' && (
             <div className="modal-section">
-              <div className="field-label">Sparky (AI)</div>
-              <ul>
-                <li>Open the chat bottom-right. Modes: Agent (builds), Chat (guidance), Insights (analyzes).</li>
-                <li>Agent mode plans first, then builds. Turn Auto-apply off to review before applying.</li>
-                <li>Ask things like “Create Acquisition → Activation with increases” or “Summarize the current bottlenecks”.</li>
+                <div className="field-label">Links</div>
+                <ul>
+                  <li>Create: click a node handle (left/right/top/bottom) and release on another node.</li>
+                  <li>Direction: none, → (source→target), or ← (target→source). Set this in the inline edge menu.</li>
+                  <li>Style: straight or curved. Curved links reduce overlap and improve readability in dense areas.</li>
+                  <li>Keywords: toggle common semantics like “increases” or “decreases” to clarify the relationship.</li>
+                  <li>Notes: add a short free‑text label shown near the link midpoint.</li>
+                  <li>Edit: click a link to open the inline menu at its midpoint; click outside to dismiss.</li>
               </ul>
             </div>
+            )}
+            {guidePage === 'notes' && (
+              <div className="modal-section">
+                <div className="field-label">Sticky notes</div>
+                <ul>
+                  <li>Create: click the empty canvas to add a note at that position.</li>
+                  <li>Markdown: supports headings, emphasis, lists, and code. A live preview renders next to the editor.</li>
+                  <li>Resize: drag any corner square; notes keep their content layout during resize.</li>
+                  <li>Delete: drag a note onto the trash circle or use the Delete button in the editor.</li>
+                </ul>
+              </div>
+            )}
+            {guidePage === 'canvas' && (
+              <div className="modal-section">
+                <div className="field-label">Canvas & navigation</div>
+                <ul>
+                  <li>Pan: click‑and‑drag the background. Cursor changes to indicate panning state.</li>
+                  <li>Zoom: use − / + controls bottom‑left. Zoom is centered on the viewport and preserves scene position.</li>
+                  <li>Precision: drags and pans suppress the next click to avoid accidental note creation.</li>
+                </ul>
+              </div>
+            )}
+            {guidePage === 'io' && (
+              <div className="modal-section">
+                <div className="field-label">Save, open, and export</div>
+                <ul>
+                  <li>Save: generates a compact code you can copy. It includes nodes, links, notes, pan, and zoom.</li>
+                  <li>Open: paste a code to restore the full scene exactly as saved.</li>
+                  <li>Export: downloads a high‑DPI PNG of the current canvas (uses your current pan/zoom).</li>
+                </ul>
+              </div>
+            )}
+            {guidePage === 'tips' && (
             <div className="modal-section">
               <div className="field-label">Tips</div>
               <ul>
-                <li>Use tags and notes to annotate links and nodes for better clarity.</li>
-                <li>Curved arrows help avoid overlaps; increase node size for emphasis.</li>
+                  <li>Hierarchy: use size and color to signal importance; avoid too many bright colors.</li>
+                  <li>Layout: space related nodes evenly; use curved links to avoid visual tangles.</li>
+                  <li>Semantics: prefer keywords and short notes over long paragraphs on links.</li>
               </ul>
             </div>
+            )}
           </div>
         </div>
       )}
@@ -1039,7 +1326,22 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
               <button className="close-btn" onClick={() => setShowUpdates(false)} aria-label="Close">×</button>
             </div>
             <div className="modal-section">
-              <div>No new updates.</div>
+              <div className="field-label">Version</div>
+              <div>1.0.0</div>
+            </div>
+            <div className="modal-section">
+              <div className="field-label">Current features</div>
+              <ul>
+                <li>Nodes: add, drag, resize, edit name/color/size/description/tags.</li>
+                <li>Links: create, set direction (→/←), style (straight/curved), keywords, note.</li>
+                <li>Sticky notes: add, resize, edit in Markdown with live preview.</li>
+                <li>Canvas: pan and zoom with on-screen controls.</li>
+                <li>Save/Open: export scene to a code and restore from it.</li>
+                <li>Trash zone: drop a dragging node or note to delete quickly.</li>
+                <li>Color tools: palette and custom color picker.</li>
+                <li>Export: download the current canvas as an image.</li>
+                <li>Docs and Updates modals for guidance and messages.</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -1104,78 +1406,23 @@ Use existing node titles for edges if nodes already exist. If coordinates are om
         <button className="zoom-btn" onClick={zoomIn} aria-label="Zoom in">+</button>
       </div>
 
-      {/* Chat button */}
-      <button className="chat-button" onClick={() => setShowChat((v) => !v)} aria-label="Open chat">💬</button>
-
-      {showChat && (
-        <div className="chat-panel">
-          <div className="chat-header">
-            <div>Sparky</div>
-            <div className="right">
-              <div className="mode-toggle">
-                <button className={`mode-btn ${mode === 'agent' ? 'active' : ''}`} onClick={() => setMode('agent')}>Agent</button>
-                <button className={`mode-btn ${mode === 'chat' ? 'active' : ''}`} onClick={() => setMode('chat')}>Chat</button>
-                <button className={`mode-btn ${mode === 'insights' ? 'active' : ''}`} onClick={() => setMode('insights')}>Insights</button>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input type="checkbox" checked={autoApply} onChange={(e) => setAutoApply(e.target.checked)} />
-                Auto-apply
-              </label>
-              <button className="close-btn" onClick={() => setShowChat(false)} aria-label="Close">×</button>
-            </div>
-          </div>
-          <div className="chat-messages">
-            {chatMessages.map((m, i) => (
-              <div key={i} className={`bubble ${m.role}`}>
-                <div className="bubble-avatar">{m.role === 'assistant' ? '🤖' : '🧑'}</div>
-                <div className={`msg ${m.role}`}>{m.content}</div>
-              </div>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
-          {pending && !autoApply && (
-            <div className="chat-pending">
-              <div>AI plan ready. Apply the suggested changes?</div>
-              <div className="actions">
-                <button className="btn btn-ghost" onClick={() => setPending(null)}>Dismiss</button>
-                <button className="btn btn-primary" onClick={() => { generateAndApplyActions(pending.planText) }}>Apply</button>
-              </div>
-            </div>
-          )}
-          <div className="chat-input">
-            <div className="composer">
-              <div className="mode-toggle-pill" onClick={() => setShowModeMenu((v) => !v)}>{mode.charAt(0).toUpperCase() + mode.slice(1)} ▾</div>
-              <div className="composer-input">
-                <textarea
-                  className="chat-textarea"
-                  placeholder="Chat with Sparky"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      if (!isSending) sendChat()
-                    }
-                  }}
-                />
-                <button className="send-circle" disabled={isSending} onClick={sendChat} aria-label="Send">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M4 12H20" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M14 6L20 12L14 18" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            {showModeMenu && (
-              <div className="mode-dropdown" onClick={(e) => e.stopPropagation()}>
-                <div className="mode-item" onClick={() => { setMode('agent'); setShowModeMenu(false) }}>Agent</div>
-                <div className="mode-item" onClick={() => { setMode('chat'); setShowModeMenu(false) }}>Chat</div>
-                <div className="mode-item" onClick={() => { setMode('insights'); setShowModeMenu(false) }}>Insights</div>
-              </div>
-            )}
-          </div>
+      {/* Trash drop zone */}
+      {(draggingNodeId || draggingStickyId) && (
+        <div ref={trashRef} className={`trash-zone ${isOverTrash ? 'over' : ''}`} aria-label="Trash">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+            <path d="M3 6h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
         </div>
       )}
+
+      {/* AI chat removed */}
+
+      {/* Footer credit */}
+      <div className="made-with-love" aria-hidden>
+        Made with love by Diogo Baptista
+              </div>
     </div>
   )
 }
