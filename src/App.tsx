@@ -606,13 +606,13 @@ function App() {
     <div className="app-root">
       <div className="top-title">
         <span className="brand-name">Circuitboard</span>
-        <img src="/circuit.png" alt="" className="brand-stars" aria-hidden />
+        <img src="circuit.png" alt="" className="brand-stars" aria-hidden />
       </div>
 
       <div className="top-left-actions">
         <button className="round-icon" title="Guide" onClick={() => setShowDocs(true)} aria-label="Open guide">
           {!guideIconFailed ? (
-            <img src="/book.svg" width={20} height={20} alt="" onError={() => setGuideIconFailed(true)} />
+            <img src="book.svg" width={20} height={20} alt="" onError={() => setGuideIconFailed(true)} />
           ) : (
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M6 4h10v16H6z" stroke="#374151" strokeWidth="2" strokeLinejoin="round"/>
