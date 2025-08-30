@@ -151,6 +151,28 @@ function App() {
     }
   }
 
+  function centerView() {
+    setPan({ x: 0, y: 0 })
+  }
+
+  function startEditingSystemName() {
+    setSystemNameInput(systemName)
+    setIsEditingSystemName(true)
+  }
+
+  function saveSystemName() {
+    const trimmedName = systemNameInput.trim()
+    if (trimmedName) {
+      setSystemName(trimmedName)
+    }
+    setIsEditingSystemName(false)
+  }
+
+  function cancelEditingSystemName() {
+    setSystemNameInput(systemName)
+    setIsEditingSystemName(false)
+  }
+
   const [linkingFrom, setLinkingFrom] = useState<
     | { nodeId: string; side: 'left' | 'right' | 'top' | 'bottom' }
     | null
@@ -165,6 +187,9 @@ function App() {
   const [openError, setOpenError] = useState<string | null>(null)
   const [showMinimap, setShowMinimap] = useState<boolean>(false)
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false)
+  const [systemName, setSystemName] = useState<string>("Circuitboard")
+  const [isEditingSystemName, setIsEditingSystemName] = useState<boolean>(false)
+  const [systemNameInput, setSystemNameInput] = useState<string>("Circuitboard")
   // AI chat removed
   const [showDocs, setShowDocs] = useState<boolean>(false)
   const [showUpdates, setShowUpdates] = useState<boolean>(false)
@@ -900,12 +925,14 @@ function App() {
 
   function generateSceneCode() {
     const scene = {
-      v: 1,
+      v: 2, // Increment version to support new fields
       nodes,
       edges,
       zoom,
       pan,
       stickyNotes,
+      systemName,
+      colorTopicAssignments,
     }
     const json = JSON.stringify(scene)
     // Encode JSON to base64 with unicode safety
@@ -931,6 +958,18 @@ function App() {
       if (typeof data.zoom === 'number') setZoom(data.zoom)
       if (data.pan && typeof data.pan.x === 'number' && typeof data.pan.y === 'number') setPan(data.pan)
       if (Array.isArray(data.stickyNotes)) setStickyNotes(data.stickyNotes)
+      
+      // Load system name (v2+ feature, backward compatible)
+      if (typeof data.systemName === 'string') {
+        setSystemName(data.systemName)
+        setSystemNameInput(data.systemName)
+      }
+      
+      // Load color topic assignments (v2+ feature, backward compatible)
+      if (data.colorTopicAssignments && typeof data.colorTopicAssignments === 'object') {
+        setColorTopicAssignments(data.colorTopicAssignments)
+      }
+      
       setShowOpen(false)
     } catch (e) {
       setOpenError('Invalid code. Make sure you pasted the full string.')
@@ -948,6 +987,9 @@ function App() {
     setShowResetConfirm(false)
     setStickyNotes([])
     setActiveStickyId(null)
+    setSystemName("Circuitboard")
+    setSystemNameInput("Circuitboard")
+    setColorTopicAssignments({})
   }
 
   // Generate legend data for export
@@ -1033,7 +1075,7 @@ function App() {
         }
       }
       
-      // Create and show legend overlay temporarily
+      // Create legend overlay
       let legendOverlay: HTMLDivElement | null = null
       if (hasLegend) {
         legendOverlay = document.createElement('div')
@@ -1050,12 +1092,24 @@ function App() {
         el.appendChild(legendOverlay)
       }
       
+      // Create system name overlay in center
+      let systemNameOverlay: HTMLDivElement | null = null
+      if (systemName !== "Circuitboard") {
+        systemNameOverlay = document.createElement('div')
+        systemNameOverlay.className = 'export-system-name'
+        systemNameOverlay.innerHTML = `<div class="system-name-text">${systemName}</div>`
+        el.appendChild(systemNameOverlay)
+      }
+      
       // Render the canvas with legend
       const canvas = await html2canvas(el, { useCORS: true, scale: 2 })
       
-      // Remove legend overlay
+      // Remove overlays
       if (legendOverlay) {
         el.removeChild(legendOverlay)
+      }
+      if (systemNameOverlay) {
+        el.removeChild(systemNameOverlay)
       }
       
       // Create download
@@ -1163,7 +1217,32 @@ function App() {
   return (
     <div className="app-root">
       <div className="top-title">
-        <span className="brand-name">Circuitboard</span>
+        {isEditingSystemName ? (
+          <input
+            className="system-name-input"
+            type="text"
+            value={systemNameInput}
+            onChange={(e) => setSystemNameInput(e.target.value)}
+            onBlur={saveSystemName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                saveSystemName()
+              } else if (e.key === 'Escape') {
+                cancelEditingSystemName()
+              }
+            }}
+            autoFocus
+            placeholder="System name"
+          />
+        ) : (
+          <span 
+            className="brand-name editable-title" 
+            onClick={startEditingSystemName}
+            title="Click to edit system name"
+          >
+            {systemName}
+          </span>
+        )}
         <img src="circuit.png" alt="" className="brand-stars" aria-hidden />
       </div>
 
@@ -2288,13 +2367,47 @@ function App() {
             </div>
             <div className="updates-content">
               
-              {/* Version 1.3.0 - Latest */}
+              {/* Version 1.4.0 - Latest */}
               <div className="version-card latest">
                 <div className="version-header">
-                  <div className="version-number">v1.3.0</div>
+                  <div className="version-number">v1.4.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div className="version-badge">Latest</div>
                     <div className="version-date">September 1, 2025</div>
+                  </div>
+                </div>
+                <div className="version-features">
+                  <h4>New Features</h4>
+                  <ul>
+                    <li><strong>Custom System Names:</strong> Click on "Circuitboard" to rename your system - custom names appear as headers in PNG exports for professional branding</li>
+                    <li><strong>Enhanced Save System:</strong> Save codes now preserve your custom system name and all color-topic assignments for complete project restoration</li>
+                    <li><strong>Navigation Controls:</strong> New center button returns to origin (0,0) with one click, plus live coordinate display showing your current position</li>
+                    <li><strong>Smart Tag Input:</strong> Fixed comma handling - you can now type tags naturally with "tag1, tag2, tag3" without input interference</li>
+                    <li><strong>Improved Node Spawning:</strong> New nodes always appear in center of current viewport, not canvas center, for better workflow</li>
+                  </ul>
+                  <h4>Quality of Life</h4>
+                  <ul>
+                    <li><strong>Professional Exports:</strong> Custom system names appear as prominent headers in PNG exports with professional styling</li>
+                    <li><strong>Complete State Persistence:</strong> Everything including names, colors, and topic assignments survives save/load cycles</li>
+                    <li><strong>Spatial Awareness:</strong> Live X,Y coordinates help you navigate large diagrams across the 9x canvas area</li>
+                    <li><strong>Intuitive Controls:</strong> Center button and coordinate display positioned for easy access without cluttering interface</li>
+                    <li><strong>Backward Compatibility:</strong> New v2 save format works with all existing v1 save codes</li>
+                  </ul>
+                  <h4>Bug Fixes</h4>
+                  <ul>
+                    <li><strong>Tag Input:</strong> Fixed comma handling issue that prevented proper tag separation during typing</li>
+                    <li><strong>Export Positioning:</strong> System name now appears as proper header instead of center overlay in exports</li>
+                    <li><strong>State Management:</strong> Custom names and assignments properly cleared when resetting canvas</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Version 1.3.0 */}
+              <div className="version-card">
+                <div className="version-header">
+                  <div className="version-number">v1.3.0</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div className="version-date">August 31, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2319,7 +2432,7 @@ function App() {
                 <div className="version-header">
                   <div className="version-number">v1.2.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className="version-date">August 31, 2025</div>
+                    <div className="version-date">August 30, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2344,7 +2457,7 @@ function App() {
                 <div className="version-header">
                   <div className="version-number">v1.1.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className="version-date">August 30, 2025</div>
+                    <div className="version-date">August 29, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2365,7 +2478,7 @@ function App() {
                 <div className="version-header">
                   <div className="version-number">v1.0.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className="version-date">August 28, 2025</div>
+                    <div className="version-date">August 27, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2560,6 +2673,24 @@ function App() {
         <button className="zoom-btn" onClick={zoomOut} aria-label="Zoom out">-</button>
         <div className="zoom-level">{Math.round(zoom * 100)}%</div>
         <button className="zoom-btn" onClick={zoomIn} aria-label="Zoom in">+</button>
+        <button className="zoom-btn center-btn" onClick={centerView} aria-label="Center view" title="Back to center">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="8" cy="8" r="2"/>
+            <path d="M8 1v6M8 9v6M1 8h6M9 8h6"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* Coordinate display */}
+      <div className="coordinate-display">
+        <div className="coordinate-item">
+          <span className="coordinate-label">X:</span>
+          <span className="coordinate-value">{Math.round(-pan.x)}</span>
+        </div>
+        <div className="coordinate-item">
+          <span className="coordinate-label">Y:</span>
+          <span className="coordinate-value">{Math.round(-pan.y)}</span>
+        </div>
       </div>
 
       {/* Trash drop zone */}

@@ -96,11 +96,58 @@
   font-weight: 700;
   color: #111827;
 }
+
+.editable-title {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.editable-title:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+}
+
+.editable-title:hover::after {
+  content: '✏️';
+  position: absolute;
+  right: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.system-name-input {
+  background: #ffffff;
+  border: 2px solid #6366f1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: inherit;
+  font-weight: 700;
+  color: #111827;
+  outline: none;
+  min-width: 150px;
+  text-align: center;
+}
 .brand-name { font-size: 44px; }
 .brand-stars { width: 40px; height: 40px; object-fit: contain; }
 
 @media (prefers-color-scheme: dark) {
   .top-title { color: #e5e7eb; }
+  
+  .editable-title:hover {
+    background: rgba(129, 140, 248, 0.1);
+    color: #818cf8;
+  }
+  
+  .system-name-input {
+    background: #111827;
+    border-color: #818cf8;
+    color: #e5e7eb;
+  }
 }
 
 .floating-pill {
@@ -503,8 +550,8 @@
 /* Minimap */
 .minimap {
   position: fixed;
-  bottom: 80px;
-  left: 20px;
+  bottom: 120px;
+  left: 16px;
   z-index: 1000;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
@@ -760,8 +807,62 @@
   z-index: 26;
 }
 
+.center-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coordinate-display {
+  position: fixed;
+  left: 16px;
+  bottom: 80px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 8px 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  z-index: 26;
+  font-size: 13px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+}
+
+.coordinate-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.coordinate-label {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.coordinate-value {
+  color: #111827;
+  font-weight: 600;
+  min-width: 32px;
+  text-align: right;
+}
+
 @media (prefers-color-scheme: dark) {
   .zoom-controls { background: #0b1220; border-color: #1f2937; }
+  
+  .coordinate-display { 
+    background: #0b1220; 
+    border-color: #1f2937; 
+  }
+  
+  .coordinate-label {
+    color: #9ca3af;
+  }
+  
+  .coordinate-value {
+    color: #f3f4f6;
+  }
 }
 
 .zoom-btn {
@@ -1794,6 +1895,30 @@
   z-index: 1000;
   min-width: 200px;
   max-width: 220px;
+}
+
+/* Export System Name as Header */
+.export-system-name {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  pointer-events: none;
+}
+
+.system-name-text {
+  background: rgba(255, 255, 255, 0.95);
+  border: 3px solid #6366f1;
+  border-radius: 16px;
+  padding: 12px 24px;
+  font-size: 24px;
+  font-weight: 800;
+  color: #6366f1;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(99, 102, 241, 0.25);
+  backdrop-filter: blur(10px);
+  min-width: 200px;
 }
 
 .legend-title {
