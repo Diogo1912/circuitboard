@@ -100,6 +100,15 @@ function App() {
   const ZOOM_MIN = 0.5
   const ZOOM_MAX = 2
   const ZOOM_STEP = 0.1
+  
+  // Canvas bounds - 9x viewport size at 100% zoom
+  const CANVAS_BOUNDS = {
+    minX: -window.innerWidth * 4,
+    maxX: window.innerWidth * 4,
+    minY: -window.innerHeight * 4,
+    maxY: window.innerHeight * 4
+  }
+  
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState<boolean>(false)
   const panStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -122,7 +131,7 @@ function App() {
     const sceneX = sx / prevZoom - prevPan.x
     const sceneY = sy / prevZoom - prevPan.y
     setZoom(nextZoom)
-    setPan({ x: sx / nextZoom - sceneX, y: sy / nextZoom - sceneY })
+    setPan(constrainPan({ x: sx / nextZoom - sceneX, y: sy / nextZoom - sceneY }))
   }
 
   function zoomIn() {
@@ -133,6 +142,13 @@ function App() {
   function zoomOut() {
     const next = Math.max(ZOOM_MIN, parseFloat((zoom - ZOOM_STEP).toFixed(2)))
     if (next !== zoom) setZoomAtCenter(next)
+  }
+
+  function constrainPan(newPan: { x: number; y: number }): { x: number; y: number } {
+    return {
+      x: Math.max(CANVAS_BOUNDS.minX, Math.min(CANVAS_BOUNDS.maxX, newPan.x)),
+      y: Math.max(CANVAS_BOUNDS.minY, Math.min(CANVAS_BOUNDS.maxY, newPan.y))
+    }
   }
 
   const [linkingFrom, setLinkingFrom] = useState<
@@ -147,6 +163,7 @@ function App() {
   const [openCode, setOpenCode] = useState<string>("")
   const [tagInputValue, setTagInputValue] = useState<string>("")
   const [openError, setOpenError] = useState<string | null>(null)
+  const [showMinimap, setShowMinimap] = useState<boolean>(false)
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false)
   // AI chat removed
   const [showDocs, setShowDocs] = useState<boolean>(false)
@@ -658,7 +675,7 @@ function App() {
       const dyScreen = e.clientY - pointerStartRef.current.y
       const dxScene = dxScreen / zoom
       const dyScene = dyScreen / zoom
-      setPan({ x: panStartRef.current.x + dxScene, y: panStartRef.current.y + dyScene })
+      setPan(constrainPan({ x: panStartRef.current.x + dxScene, y: panStartRef.current.y + dyScene }))
       if (!canvasDidPanRef.current && (Math.abs(dxScreen) > 3 || Math.abs(dyScreen) > 3)) {
         canvasDidPanRef.current = true
         suppressCanvasClickRef.current = true
@@ -726,6 +743,7 @@ function App() {
     interactionStartRef.current = null
     // no implicit note creation here; handled in onClick
     setIsPanning(false)
+    setShowMinimap(false)
     panStartRef.current = null
     pointerStartRef.current = null
     canvasDidPanRef.current = false
@@ -1204,6 +1222,9 @@ function App() {
       <div
         className={`canvas ${isPanning ? 'panning' : ''}`}
         ref={canvasRef}
+        style={{
+          backgroundPosition: `${pan.x * zoom % 24}px ${pan.y * zoom % 24}px`
+        }}
         onPointerMove={(e) => {
           const container = canvasRef.current
           if (container) {
@@ -1216,6 +1237,7 @@ function App() {
           // Start panning only if clicking true background (exclude nodes, notes, handles, UI)
           if (isBackgroundTarget(e.target)) {
             setIsPanning(true)
+            setShowMinimap(true)
             panStartRef.current = { ...pan }
             pointerStartRef.current = { x: e.clientX, y: e.clientY }
             canvasDidPanRef.current = false
@@ -2266,13 +2288,38 @@ function App() {
             </div>
             <div className="updates-content">
               
-              {/* Version 1.2.0 - Latest */}
+              {/* Version 1.3.0 - Latest */}
               <div className="version-card latest">
                 <div className="version-header">
-                  <div className="version-number">v1.2.0</div>
+                  <div className="version-number">v1.3.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div className="version-badge">Latest</div>
                     <div className="version-date">September 1, 2025</div>
+                  </div>
+                </div>
+                <div className="version-features">
+                  <h4>New Features</h4>
+                  <ul>
+                    <li><strong>Canvas Boundaries:</strong> Limited infinite scrolling to a manageable 9x screen area for better navigation control</li>
+                    <li><strong>Interactive Minimap:</strong> Smart minimap appears when dragging canvas, showing your current viewport position within the total canvas area</li>
+                    <li><strong>Enhanced Background Animation:</strong> Dot pattern background now moves smoothly with canvas panning for seamless navigation feel</li>
+                    <li><strong>Spatial Awareness:</strong> Blue viewport indicator on minimap shows exactly which portion of the canvas is currently visible</li>
+                  </ul>
+                  <h4>Improvements</h4>
+                  <ul>
+                    <li><strong>Navigation UX:</strong> No more getting lost in infinite space - clear boundaries and position feedback</li>
+                    <li><strong>Visual Feedback:</strong> Real-time minimap only appears when needed, keeping interface clean</li>
+                    <li><strong>Performance:</strong> Constrained canvas area reduces memory usage and improves rendering performance</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Version 1.2.0 */}
+              <div className="version-card">
+                <div className="version-header">
+                  <div className="version-number">v1.2.0</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div className="version-date">August 31, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2820,6 +2867,25 @@ function App() {
       )}
 
       {/* AI chat removed */}
+
+      {/* Minimap */}
+      {showMinimap && (
+        <div className="minimap">
+          <div className="minimap-content">
+            <div className="minimap-canvas">
+              <div 
+                className="minimap-viewport"
+                style={{
+                  left: `${((-pan.x - CANVAS_BOUNDS.minX) / (CANVAS_BOUNDS.maxX - CANVAS_BOUNDS.minX)) * 100}%`,
+                  top: `${((-pan.y - CANVAS_BOUNDS.minY) / (CANVAS_BOUNDS.maxY - CANVAS_BOUNDS.minY)) * 100}%`,
+                  width: `${(window.innerWidth / zoom / (CANVAS_BOUNDS.maxX - CANVAS_BOUNDS.minX)) * 100}%`,
+                  height: `${(window.innerHeight / zoom / (CANVAS_BOUNDS.maxY - CANVAS_BOUNDS.minY)) * 100}%`
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer credit */}
       <div className="made-with-love" aria-hidden>
