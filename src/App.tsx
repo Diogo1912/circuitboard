@@ -143,18 +143,23 @@ function App() {
   const [showSave, setShowSave] = useState<boolean>(false)
   const [showOpen, setShowOpen] = useState<boolean>(false)
   const [saveCode, setSaveCode] = useState<string>("")
+  const [copySuccess, setCopySuccess] = useState<boolean>(false)
   const [openCode, setOpenCode] = useState<string>("")
+  const [tagInputValue, setTagInputValue] = useState<string>("")
   const [openError, setOpenError] = useState<string | null>(null)
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false)
   // AI chat removed
   const [showDocs, setShowDocs] = useState<boolean>(false)
   const [showUpdates, setShowUpdates] = useState<boolean>(false)
   const [showStickyEditor, setShowStickyEditor] = useState<boolean>(false)
-  const [guidePage, setGuidePage] = useState<'start' | 'nodes' | 'links' | 'keywords' | 'canvas' | 'io' | 'tips'>('start')
-  const [guideIconFailed, setGuideIconFailed] = useState<boolean>(false)
+  const [guidePage, setGuidePage] = useState<'start' | 'nodes' | 'links' | 'keywords' | 'canvas' | 'analysis' | 'io' | 'workflows'>('start')
   const [showAnalysisPanel, setShowAnalysisPanel] = useState<boolean>(false)
   const [expandedAnalysisSections, setExpandedAnalysisSections] = useState<Set<string>>(new Set(['system', 'structure', 'completeness', 'organization']))
   const [colorTopicAssignments, setColorTopicAssignments] = useState<Record<string, string>>({})
+  const [showContact, setShowContact] = useState<boolean>(false)
+  const [contactForm, setContactForm] = useState({ name: '', email: '', type: 'feature', message: '' })
+  const [contactSubmitting, setContactSubmitting] = useState<boolean>(false)
+  const [contactSubmitted, setContactSubmitted] = useState<boolean>(false)
 
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const interactionStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -389,6 +394,11 @@ function App() {
     setActiveEdgeId(null)
     setActiveStickyId(null)
     setShowAnalysisPanel(false)
+    // Sync tag input value when highlighting node
+    const node = nodes.find(n => n.id === nodeId)
+    if (node) {
+      setTagInputValue(node.tags.join(', '))
+    }
   }
 
   function assignColorToTopic(color: string, topic: string) {
@@ -735,6 +745,11 @@ function App() {
     setActiveNodeId(nodeId)
     setActiveEdgeId(null)
     setActiveStickyId(null)
+    // Sync tag input value when opening editor
+    const node = nodes.find(n => n.id === nodeId)
+    if (node) {
+      setTagInputValue(node.tags.join(', '))
+    }
   }
 
   function closeEditor() {
@@ -743,6 +758,7 @@ function App() {
     setEdgeMenu(null)
     setActiveStickyId(null)
     setShowStickyEditor(false)
+    setTagInputValue("")
   }
 
   function updateActiveNode(updater: (n: NodeItem) => NodeItem) {
@@ -846,6 +862,24 @@ function App() {
   }
 
   // --- Save / Open ---
+  async function copySaveCode() {
+    try {
+      await navigator.clipboard.writeText(saveCode)
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    } catch (err) {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = saveCode
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    }
+  }
+
   function generateSceneCode() {
     const scene = {
       v: 1,
@@ -1070,6 +1104,44 @@ function App() {
     }
   }, [showAnalysisPanel])
 
+  // Contact form submission
+  async function submitContactForm(e: React.FormEvent) {
+    e.preventDefault()
+    setContactSubmitting(true)
+
+    try {
+      const response = await fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          access_key: '36f59158-648d-46fb-9621-bfd48f820aae',
+          name: contactForm.name,
+          email: contactForm.email,
+          subject: `Circuitboard ${contactForm.type}: ${contactForm.message.slice(0, 50)}...`,
+          message: `Type: ${contactForm.type}\nName: ${contactForm.name}\nEmail: ${contactForm.email}\n\nMessage:\n${contactForm.message}`,
+          from_name: 'Circuitboard App',
+        }),
+      })
+
+      if (response.ok) {
+        setContactSubmitted(true)
+        setContactForm({ name: '', email: '', type: 'feature', message: '' })
+        setTimeout(() => {
+          setShowContact(false)
+          setContactSubmitted(false)
+        }, 3000)
+      } else {
+        throw new Error('Failed to submit')
+      }
+    } catch (error) {
+      alert('Failed to send message. Please try again.')
+    } finally {
+      setContactSubmitting(false)
+    }
+  }
+
   return (
     <div className="app-root">
       <div className="top-title">
@@ -1079,20 +1151,22 @@ function App() {
 
       <div className="top-left-actions">
         <button className="round-icon" title="Guide" onClick={() => setShowDocs(true)} aria-label="Open guide">
-          {!guideIconFailed ? (
-            <img src="book.svg" width={20} height={20} alt="" onError={() => setGuideIconFailed(true)} />
-          ) : (
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M6 4h10v16H6z" stroke="#374151" strokeWidth="2" strokeLinejoin="round"/>
-              <path d="M4 6h2v12H4z" stroke="#374151" strokeWidth="2" strokeLinejoin="round"/>
-              <path d="M8 4v16" stroke="#374151" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" stroke="#374151" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" stroke="#374151" strokeWidth="2"/>
+            <path d="M8 7h8M8 11h6" stroke="#374151" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          )}
         </button>
         <button className="round-icon" title="Updates" onClick={() => setShowUpdates(true)} aria-label="Open updates">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 6h16v12H4z" stroke="#374151" strokeWidth="2" strokeLinejoin="round"/>
-            <path d="M4 6l8 6 8-6" stroke="#374151" strokeWidth="2" strokeLinejoin="round"/>
+            <path d="M18 8c0-3.3-2.7-6-6-6s-6 2.7-6 6c0 7-3 9-3 9h18s-3-2-3-9z" stroke="#374151" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M13.73 21c-.39.74-1.15 1.24-2.02 1.24s-1.63-.5-2.02-1.24" stroke="#374151" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button className="round-icon" title="Contact" onClick={() => setShowContact(true)} aria-label="Send feedback">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 8.5l-9 5.5-9-5.5" stroke="#374151" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M3 7v10c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2z" stroke="#374151" strokeWidth="2"/>
           </svg>
         </button>
       </div>
@@ -1576,13 +1650,22 @@ function App() {
                 id="node-tags"
                 className="text-input"
                 type="text"
-                value={activeNode.tags.join(', ')}
+                value={tagInputValue}
                 onChange={(e) => {
-                  const parts = e.target.value
+                  setTagInputValue(e.target.value)
+                }}
+                onBlur={() => {
+                  // Process tags when user finishes editing
+                  const parts = tagInputValue
                     .split(',')
                     .map((t) => t.trim())
                     .filter((t) => t.length > 0)
                   updateActiveNode((n) => ({ ...n, tags: parts }))
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur() // Trigger onBlur to save tags
+                  }
                 }}
                 placeholder="comma,separated,tags"
               />
@@ -1702,140 +1785,664 @@ function App() {
 
       {showDocs && (
         <div className="modal-overlay" onClick={() => setShowDocs(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal guide-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Guide</h3>
               <button className="close-btn" onClick={() => setShowDocs(false)} aria-label="Close">×</button>
             </div>
+            <div className="guide-content">
             <div className="modal-section">
-              <div className="field-label">Topics</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                <button className={`chip ${guidePage === 'start' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('start')}>Getting started</button>
+              <div className="field-label">Guide Topics</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                <button className={`chip ${guidePage === 'start' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('start')}>Quick Start</button>
                 <button className={`chip ${guidePage === 'nodes' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('nodes')}>Nodes</button>
                 <button className={`chip ${guidePage === 'links' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('links')}>Links</button>
-                <button className={`chip ${guidePage === 'keywords' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('keywords')}>Sticky notes</button>
+                <button className={`chip ${guidePage === 'keywords' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('keywords')}>Notes</button>
                 <button className={`chip ${guidePage === 'canvas' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('canvas')}>Canvas</button>
-                <button className={`chip ${guidePage === 'io' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('io')}>Save/Open/Export</button>
-                <button className={`chip ${guidePage === 'tips' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('tips')}>Tips</button>
+                <button className={`chip ${guidePage === 'analysis' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('analysis')}>Analysis</button>
+                <button className={`chip ${guidePage === 'io' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('io')}>Save/Export</button>
+                <button className={`chip ${guidePage === 'workflows' ? 'chip-selected' : ''}`} onClick={() => setGuidePage('workflows')}>Workflows</button>
               </div>
             </div>
             {guidePage === 'start' && (
             <div className="modal-section">
-                <div className="field-label">Getting started</div>
+                <div className="field-label">Welcome to Circuitboard</div>
+                <p><strong>Build visual systems and network diagrams with ease.</strong> Circuitboard helps you map ideas, processes, and relationships using nodes, links, and notes.</p>
+                
+                <div className="field-label" style={{ marginTop: 20 }}>Your First Circuit</div>
+                <ol>
+                  <li><strong>Create nodes:</strong> Click the <strong>+</strong> button (left sidebar) → Choose a color → Click to place your first node</li>
+                  <li><strong>Add content:</strong> Double-click the node → Enter name, description, and tags → Save</li>
+                  <li><strong>Connect nodes:</strong> Hover over a node → Drag from any handle → Release on another node</li>
+                  <li><strong>Organize:</strong> Drag nodes to arrange → Use mouse wheel or zoom controls to get the perfect view</li>
+                  <li><strong>Analyze:</strong> Click the Analysis button (top-right) to see insights about your network</li>
+                </ol>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Key Concepts</div>
                 <ul>
-                  <li>Add nodes with the + button on the left pill. Choose a color from the palette; use the rainbow swatch for a custom color.</li>
-                  <li>Drag nodes to arrange your system. Use panning/zoom to frame the area you care about.</li>
-                  <li>Create links using the small circular handles on a node; release over another node to connect.</li>
-                  <li>Double‑click a node or note to open its editor. Press Esc to quickly close modals.</li>
-              </ul>
+                  <li><strong>Nodes:</strong> Core elements (people, concepts, systems) - use color and size to show importance</li>
+                  <li><strong>Links:</strong> Relationships between nodes - add direction arrows and keywords to clarify meaning</li>
+                  <li><strong>Notes:</strong> Contextual information - perfect for documentation or explanations</li>
+                  <li><strong>Tags:</strong> Categories that help organize and analyze your network structure</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Quick Actions</div>
+                <ul>
+                  <li><strong>Double-click:</strong> Edit nodes or notes instantly</li>
+                  <li><strong>Right-click:</strong> Quick actions menu (coming soon)</li>
+                  <li><strong>Esc key:</strong> Close any open modal or editor</li>
+                  <li><strong>Drag to trash:</strong> Delete nodes or notes by dropping on the trash zone</li>
+                </ul>
             </div>
             )}
             {guidePage === 'nodes' && (
             <div className="modal-section">
-                <div className="field-label">Nodes</div>
+                <div className="field-label">Working with Nodes</div>
+                <p>Nodes are the core building blocks of your network. They represent concepts, people, systems, or any entities you want to connect and analyze.</p>
+                
+                <div className="field-label" style={{ marginTop: 20 }}>Creating Nodes</div>
                 <ul>
-                  <li>Name, Color, Size: define identity and emphasis. Larger nodes draw attention; white nodes get a subtle border; black nodes invert text color for readability.</li>
-                  <li>Description: add context for teammates. Keep it short; use notes for longer text.</li>
-                  <li>Tags: comma‑separated labels (e.g., marketing, backend). Tags render as chips and help scanning.</li>
-                  <li>Resize: drag any of the four corner squares. Sizes are clamped between 24 and 200 for readability.</li>
-                  <li>Delete: use the Delete node button in the editor or drag the node to the trash circle at the bottom.</li>
-              </ul>
+                  <li><strong>Add a node:</strong> Click the <strong>+</strong> button in the left sidebar</li>
+                  <li><strong>Choose color:</strong> Select from the color palette or use the rainbow swatch for custom colors</li>
+                  <li><strong>Place on canvas:</strong> Click anywhere on the canvas to create your node</li>
+                  <li><strong>Quick create:</strong> After placing one node, the add mode stays active for rapid creation</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Editing Node Properties</div>
+                <ul>
+                  <li><strong>Name:</strong> The main label - keep it concise and descriptive</li>
+                  <li><strong>Description:</strong> Additional context (appears on hover) - 1-2 sentences work best</li>
+                  <li><strong>Tags:</strong> Comma-separated labels (e.g., "frontend, react, critical") - used for filtering and analysis</li>
+                  <li><strong>Color:</strong> Visual categorization - consistent colors help identify groups</li>
+                  <li><strong>Size:</strong> Emphasis level - larger nodes draw more attention</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Visual Design Guidelines</div>
+                <ul>
+                  <li><strong>Size hierarchy:</strong> Important nodes should be larger (use sizes 64-120px)</li>
+                  <li><strong>Color coding:</strong> Use consistent colors for categories (blue = systems, green = processes, etc.)</li>
+                  <li><strong>White/light nodes:</strong> Get subtle borders for visibility</li>
+                  <li><strong>Dark nodes:</strong> Text color automatically inverts for readability</li>
+                  <li><strong>Size limits:</strong> Nodes are clamped between 24px and 200px</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Node Operations</div>
+                <ul>
+                  <li><strong>Move:</strong> Click and drag nodes anywhere on the canvas</li>
+                  <li><strong>Resize:</strong> Drag any of the four corner squares</li>
+                  <li><strong>Edit:</strong> Double-click to open the editor</li>
+                  <li><strong>Connect:</strong> Drag from connection handles (small circles on node edges)</li>
+                  <li><strong>Delete:</strong> Use the Delete button in editor, or drag to trash zone</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Best Practices</div>
+                <ul>
+                  <li><strong>Naming:</strong> Use noun phrases (User Profile, Payment System)</li>
+                  <li><strong>Consistency:</strong> Similar nodes should have similar sizes and colors</li>
+                  <li><strong>Tags:</strong> Create a consistent tag vocabulary for your project</li>
+                  <li><strong>Spacing:</strong> Leave enough space between nodes for clear connections</li>
+                </ul>
             </div>
             )}
             {guidePage === 'links' && (
             <div className="modal-section">
-                <div className="field-label">Links</div>
+                <div className="field-label">Creating and Managing Links</div>
+                <p>Links show relationships between nodes. They can represent data flow, dependencies, influence, or any type of connection in your system.</p>
+                
+                <div className="field-label" style={{ marginTop: 20 }}>Creating Links</div>
                 <ul>
-                  <li>Create: click a node handle (left/right/top/bottom) and release on another node.</li>
-                  <li>Direction: none, → (source→target), or ← (target→source). Set this in the inline edge menu.</li>
-                  <li>Style: straight or curved. Curved links reduce overlap and improve readability in dense areas.</li>
-                  <li>Keywords: toggle common semantics like “increases” or “decreases” to clarify the relationship.</li>
-                  <li>Custom keywords: add a short free‑text label shown near the link midpoint.</li>
-                  <li>Edit: click a link to open the inline menu at its midpoint; click outside to dismiss.</li>
-              </ul>
+                  <li><strong>Start connection:</strong> Hover over any node to see connection handles (small circles)</li>
+                  <li><strong>Drag to connect:</strong> Click and drag from any handle to another node</li>
+                  <li><strong>Handle positions:</strong> Top, bottom, left, and right handles for optimal routing</li>
+                  <li><strong>Visual feedback:</strong> Handles appear on hover, cursor changes during drag</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Link Properties</div>
+                <ul>
+                  <li><strong>Direction:</strong> None (bidirectional), → (source to target), or ← (target to source)</li>
+                  <li><strong>Style:</strong> Straight (direct) or curved (reduces visual clutter in dense networks)</li>
+                  <li><strong>Keywords:</strong> Pre-defined relationships like "increases", "decreases", "depends on"</li>
+                  <li><strong>Custom keywords:</strong> Free-text labels for specific relationship details</li>
+                  <li><strong>Visual weight:</strong> Links automatically adjust thickness based on importance</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Editing Links</div>
+                <ul>
+                  <li><strong>Open editor:</strong> Click any link to open the inline menu at its midpoint</li>
+                  <li><strong>Change direction:</strong> Use the arrow buttons (No arrow, →, ←)</li>
+                  <li><strong>Add keywords:</strong> Toggle common relationship types</li>
+                  <li><strong>Custom labels:</strong> Enter specific relationship details</li>
+                  <li><strong>Curve links:</strong> Drag the link to create curved paths</li>
+                  <li><strong>Delete links:</strong> Use the red Delete Connection button</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Link Types and Examples</div>
+                <ul>
+                  <li><strong>Data Flow:</strong> User Input → Validation → Database (directional)</li>
+                  <li><strong>Dependencies:</strong> Frontend ← API ← Database (reverse arrows)</li>
+                  <li><strong>Influences:</strong> Marketing Strategy → Sales Results</li>
+                  <li><strong>Hierarchies:</strong> Manager → Team Member → Tasks</li>
+                  <li><strong>Processes:</strong> Planning → Development → Testing → Deployment</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Visual Best Practices</div>
+                <ul>
+                  <li><strong>Curved links:</strong> Use in dense areas to reduce visual overlap</li>
+                  <li><strong>Consistent directions:</strong> Same direction types for similar relationships</li>
+                  <li><strong>Meaningful keywords:</strong> Use standard vocabulary across your diagram</li>
+                  <li><strong>Link density:</strong> Avoid too many connections from one node</li>
+                  <li><strong>Color coding:</strong> Links inherit subtle colors from connected nodes</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Advanced Features</div>
+                <ul>
+                  <li><strong>Hover effects:</strong> Links highlight and thicken on mouse over</li>
+                  <li><strong>Selection feedback:</strong> Selected links show in distinct color</li>
+                  <li><strong>Smart routing:</strong> Handles automatically choose optimal connection points</li>
+                  <li><strong>Batch operations:</strong> Coming soon - select multiple links</li>
+                </ul>
             </div>
             )}
             {guidePage === 'keywords' && (
               <div className="modal-section">
-                <div className="field-label">Sticky notes</div>
+                <div className="field-label">Sticky Notes and Documentation</div>
+                <p>Sticky notes provide context, documentation, and explanations for your network. They support rich formatting and help tell the story of your system.</p>
+                
+                <div className="field-label" style={{ marginTop: 20 }}>Creating Notes</div>
                 <ul>
-                  <li>Create: click the empty canvas to add a note at that position.</li>
-                  <li>Markdown: supports headings, emphasis, lists, and code. A live preview renders next to the editor.</li>
-                  <li>Resize: drag any corner square; notes keep their content layout during resize.</li>
-                  <li>Delete: drag a note onto the trash circle or use the Delete button in the editor.</li>
+                  <li><strong>Click to create:</strong> Click any empty area of the canvas to place a note</li>
+                  <li><strong>Instant editing:</strong> Notes open in edit mode immediately after creation</li>
+                  <li><strong>Positioning:</strong> Place notes near related nodes or in empty areas</li>
+                  <li><strong>Multiple notes:</strong> Create as many notes as needed for comprehensive documentation</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Markdown Formatting</div>
+                <ul>
+                  <li><strong>Headings:</strong> # Large Header, ## Medium Header, ### Small Header</li>
+                  <li><strong>Emphasis:</strong> **bold text**, *italic text*, `inline code`</li>
+                  <li><strong>Lists:</strong> Use - or * for bullets, 1. 2. 3. for numbered lists</li>
+                  <li><strong>Links:</strong> [link text](URL) for clickable links</li>
+                  <li><strong>Code blocks:</strong> Use ``` for multi-line code sections</li>
+                  <li><strong>Line breaks:</strong> Double space at end of line or double enter</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Live Preview</div>
+                <ul>
+                  <li><strong>Side-by-side:</strong> Editor and preview shown together while editing</li>
+                  <li><strong>Real-time updates:</strong> Preview updates as you type</li>
+                  <li><strong>Formatted display:</strong> Rendered markdown shown when not editing</li>
+                  <li><strong>Click to edit:</strong> Double-click any note to return to edit mode</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Note Operations</div>
+                <ul>
+                  <li><strong>Move:</strong> Drag notes anywhere on the canvas</li>
+                  <li><strong>Resize:</strong> Drag any corner handle to change dimensions</li>
+                  <li><strong>Edit content:</strong> Double-click to open the editor</li>
+                  <li><strong>Smart sizing:</strong> Content layout preserved during resize</li>
+                  <li><strong>Delete:</strong> Use Delete button in editor or drag to trash zone</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Best Use Cases</div>
+                <ul>
+                  <li><strong>System documentation:</strong> Explain complex processes or architectures</li>
+                  <li><strong>Context notes:</strong> Provide background information for node groups</li>
+                  <li><strong>Instructions:</strong> Add usage notes or operational procedures</li>
+                  <li><strong>Legends:</strong> Explain color coding or symbol meanings</li>
+                  <li><strong>Status updates:</strong> Document current state or recent changes</li>
+                  <li><strong>Meeting notes:</strong> Capture decisions or action items</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Styling Tips</div>
+                <ul>
+                  <li><strong>Consistent sizing:</strong> Use similar dimensions for related notes</li>
+                  <li><strong>Visual hierarchy:</strong> Larger notes for important information</li>
+                  <li><strong>Strategic placement:</strong> Position near relevant network sections</li>
+                  <li><strong>Color coordination:</strong> Notes have warm yellow background by default</li>
                 </ul>
               </div>
             )}
             {guidePage === 'canvas' && (
               <div className="modal-section">
-                <div className="field-label">Canvas & navigation</div>
+                <div className="field-label">Canvas Navigation and Controls</div>
+                <p>The infinite canvas gives you unlimited space to build and organize your networks. Master these navigation techniques for efficient workflow.</p>
+                
+                <div className="field-label" style={{ marginTop: 20 }}>Panning (Moving the View)</div>
                 <ul>
-                  <li>Pan: click‑and‑drag the background. Cursor changes to indicate panning state.</li>
-                  <li>Zoom: use − / + controls bottom‑left. Zoom is centered on the viewport and preserves scene position.</li>
-                  <li>Precision: drags and pans suppress the next click to avoid accidental note creation.</li>
+                  <li><strong>Click and drag:</strong> Click empty canvas space and drag to move your view</li>
+                  <li><strong>Visual feedback:</strong> Cursor changes to grab/grabbing hand during panning</li>
+                  <li><strong>Smooth movement:</strong> Pan smoothly in any direction without limits</li>
+                  <li><strong>Smart prevention:</strong> Panning prevents accidental note creation on release</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Zooming</div>
+                <ul>
+                  <li><strong>Zoom controls:</strong> Use the - / + buttons in the bottom-left corner</li>
+                  <li><strong>Mouse wheel:</strong> Scroll to zoom in/out (if browser supports)</li>
+                  <li><strong>Zoom levels:</strong> From 10% to 500% magnification</li>
+                  <li><strong>Center-focused:</strong> Zoom centers on the viewport, preserving relative positions</li>
+                  <li><strong>Smooth scaling:</strong> All elements scale proportionally</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Viewport Management</div>
+                <ul>
+                  <li><strong>Find your content:</strong> Use zoom out to see the full network</li>
+                  <li><strong>Detail work:</strong> Zoom in for precise positioning and editing</li>
+                  <li><strong>Overview mode:</strong> Step back to see overall structure and patterns</li>
+                  <li><strong>Focus areas:</strong> Navigate to specific regions for detailed work</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Interaction Precision</div>
+                <ul>
+                  <li><strong>Click detection:</strong> System distinguishes between clicks, drags, and pans</li>
+                  <li><strong>Drag thresholds:</strong> Small movements won't trigger unintended actions</li>
+                  <li><strong>Element priority:</strong> Nodes and links take precedence over canvas interactions</li>
+                  <li><strong>Modifier awareness:</strong> Future shortcuts will use Ctrl/Cmd key combinations</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Canvas Features</div>
+                <ul>
+                  <li><strong>Grid background:</strong> Subtle dot pattern helps with alignment</li>
+                  <li><strong>Infinite space:</strong> No limits on canvas size or content placement</li>
+                  <li><strong>Dark mode support:</strong> Grid and interface adapt to system theme</li>
+                  <li><strong>Performance:</strong> Optimized rendering for smooth navigation</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Navigation Tips</div>
+                <ul>
+                  <li><strong>Start wide:</strong> Begin with an overview, then zoom in for details</li>
+                  <li><strong>Use landmarks:</strong> Place important nodes as navigation reference points</li>
+                  <li><strong>Organize by zones:</strong> Group related content in distinct canvas areas</li>
+                  <li><strong>Save positions:</strong> Your current view is saved with the project</li>
+                </ul>
+              </div>
+            )}
+            {guidePage === 'analysis' && (
+              <div className="modal-section">
+                <div className="field-label">Network Analysis and Insights</div>
+                <p>The Analysis tool provides real-time insights about your network structure, helping you understand patterns, identify important nodes, and optimize your system design.</p>
+                
+                <div className="field-label" style={{ marginTop: 20 }}>Opening Analysis</div>
+                <ul>
+                  <li><strong>Access:</strong> Click the Analysis button in the top-right corner</li>
+                  <li><strong>Side panel:</strong> Opens a detailed panel on the right side of the screen</li>
+                  <li><strong>Real-time updates:</strong> Metrics update automatically as you modify your network</li>
+                  <li><strong>Sections:</strong> Organized into System, Structure, Completeness, and Organization</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>System Overview</div>
+                <ul>
+                  <li><strong>Total counts:</strong> Nodes, connections, colors, and sticky notes</li>
+                  <li><strong>Network density:</strong> How connected your network is (percentage of possible connections)</li>
+                  <li><strong>Most connected node:</strong> The hub with the highest number of connections</li>
+                  <li><strong>Visual metrics:</strong> Clean cards showing key numbers at a glance</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Structure Analysis</div>
+                <ul>
+                  <li><strong>Top 5 connected nodes:</strong> Ranking of most important hubs with connection counts</li>
+                  <li><strong>Hub identification:</strong> Nodes with 3+ connections highlighted as network hubs</li>
+                  <li><strong>Isolated nodes:</strong> Warning about nodes without any connections</li>
+                  <li><strong>Click to highlight:</strong> Click any node in the list to highlight it on canvas</li>
+                  <li><strong>Insights:</strong> Automated observations about network structure</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Organization Analysis</div>
+                <ul>
+                  <li><strong>Top 10 tags:</strong> Most frequently used tags across your network</li>
+                  <li><strong>Tag distribution:</strong> How well tags are spread across nodes</li>
+                  <li><strong>Color analysis:</strong> Usage statistics for each color in your network</li>
+                  <li><strong>Topic mapping:</strong> Automatic assignment of colors to their most common tag</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Color-Topic Assignment</div>
+                <ul>
+                  <li><strong>Automatic detection:</strong> Colors automatically mapped to their most common tag</li>
+                  <li><strong>Manual override:</strong> Select different topics from dropdown or enter custom ones</li>
+                  <li><strong>Export legend:</strong> Color assignments included in image exports</li>
+                  <li><strong>Clear assignments:</strong> Reset to automatic detection anytime</li>
+                  <li><strong>Consistency help:</strong> Ensures coherent color coding across your network</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Using Insights</div>
+                <ul>
+                  <li><strong>Network optimization:</strong> Identify nodes that need more connections</li>
+                  <li><strong>Information architecture:</strong> See which topics dominate your system</li>
+                  <li><strong>Visual balance:</strong> Check if colors and tags are well distributed</li>
+                  <li><strong>Hub strategy:</strong> Understand which nodes are most central</li>
+                  <li><strong>Documentation gaps:</strong> Find nodes missing descriptions or tags</li>
                 </ul>
               </div>
             )}
             {guidePage === 'io' && (
               <div className="modal-section">
-                <div className="field-label">Save, open, and export</div>
+                <div className="field-label">Save, Open, and Export</div>
+                <p>Preserve your work and share your networks with flexible save and export options. All your effort is protected and portable.</p>
+                
+                <div className="field-label" style={{ marginTop: 20 }}>Saving Your Work</div>
                 <ul>
-                  <li>Save: generates a compact code you can copy. It includes nodes, links, custom keywords, pan, and zoom.</li>
-                  <li>Open: paste a code to restore the full scene exactly as saved.</li>
-                  <li>Export: downloads a high‑DPI PNG of the current canvas (uses your current pan/zoom).</li>
+                  <li><strong>Save button:</strong> Click Save in the top-right corner to generate a backup code</li>
+                  <li><strong>Complete capture:</strong> Includes all nodes, links, custom keywords, notes, colors, pan, and zoom state</li>
+                  <li><strong>Compact format:</strong> Efficient JSON encoding keeps codes manageable</li>
+                  <li><strong>Copy to clipboard:</strong> Generated code automatically selected for easy copying</li>
+                  <li><strong>Version safe:</strong> Codes work across different versions of Circuitboard</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Opening Saved Work</div>
+                <ul>
+                  <li><strong>Open button:</strong> Click Open and paste your saved code</li>
+                  <li><strong>Complete restoration:</strong> Recreates the exact state when you saved</li>
+                  <li><strong>Position preserved:</strong> Canvas view returns to saved pan and zoom</li>
+                  <li><strong>Error handling:</strong> Invalid codes show clear error messages</li>
+                  <li><strong>Merge-friendly:</strong> Can open into existing networks (coming soon)</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Exporting Images</div>
+                <ul>
+                  <li><strong>PNG export:</strong> High-DPI image files perfect for presentations</li>
+                  <li><strong>Current view:</strong> Exports exactly what you see (your current pan/zoom)</li>
+                  <li><strong>Smart legends:</strong> Color-topic assignments automatically included</li>
+                  <li><strong>Auto-zoom:</strong> System optimally frames content with legends</li>
+                  <li><strong>High quality:</strong> 2x resolution for crisp printing and displays</li>
+                  <li><strong>Timestamped files:</strong> Automatic naming with date and time</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Export with Color Legends</div>
+                <ul>
+                  <li><strong>Automatic legends:</strong> When color-topic assignments exist, legends appear on exports</li>
+                  <li><strong>Smart positioning:</strong> Legend placed in corner without covering content</li>
+                  <li><strong>Intelligent zoom:</strong> Canvas auto-adjusts to fit both network and legend</li>
+                  <li><strong>Clean formatting:</strong> Professional legend styling for presentations</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>Best Practices</div>
+                <ul>
+                  <li><strong>Regular saves:</strong> Save after major changes or before experiments</li>
+                  <li><strong>Descriptive storage:</strong> Keep save codes with project names and dates</li>
+                  <li><strong>Export staging:</strong> Position your view before export for best framing</li>
+                  <li><strong>Multiple formats:</strong> Save codes for editing, images for sharing</li>
+                  <li><strong>Version control:</strong> Keep multiple save points for complex projects</li>
+                </ul>
+
+                <div className="field-label" style={{ marginTop: 20 }}>File Management</div>
+                <ul>
+                  <li><strong>No accounts needed:</strong> Everything works locally in your browser</li>
+                  <li><strong>Privacy first:</strong> Your data never leaves your device</li>
+                  <li><strong>Cross-device:</strong> Copy codes to move work between devices</li>
+                  <li><strong>Collaboration:</strong> Share save codes with teammates</li>
                 </ul>
               </div>
             )}
-            {guidePage === 'tips' && (
+            {guidePage === 'workflows' && (
             <div className="modal-section">
-              <div className="field-label">Tips</div>
+              <div className="field-label">Workflows and Advanced Tips</div>
+              <p>Master these proven techniques for creating clear, effective network diagrams that communicate complex systems beautifully.</p>
+              
+              <div className="field-label" style={{ marginTop: 20 }}>Getting Started Workflow</div>
+              <ol>
+                <li><strong>Define your purpose:</strong> Know what story your network should tell</li>
+                <li><strong>Start with key nodes:</strong> Add the 3-5 most important elements first</li>
+                <li><strong>Establish hierarchy:</strong> Use size and color to show importance</li>
+                <li><strong>Connect core relationships:</strong> Link the most critical connections</li>
+                <li><strong>Expand systematically:</strong> Add supporting nodes and details</li>
+                <li><strong>Refine and analyze:</strong> Use analysis tools to verify structure</li>
+              </ol>
+
+              <div className="field-label" style={{ marginTop: 20 }}>Visual Design Principles</div>
               <ul>
-                  <li>Hierarchy: use size and color to signal importance; avoid too many bright colors.</li>
-                  <li>Layout: space related nodes evenly; use curved links to avoid visual tangles.</li>
-                  <li>Semantics: prefer keywords and short custom keywords over long paragraphs on links.</li>
+                <li><strong>Hierarchy through size:</strong> Important nodes should be 80-120px, details 40-60px</li>
+                <li><strong>Color consistency:</strong> Same color = same category, avoid too many bright colors</li>
+                <li><strong>Strategic spacing:</strong> Leave room between related groups for visual breathing</li>
+                <li><strong>Link clarity:</strong> Use curved links in dense areas to reduce visual tangles</li>
+                <li><strong>Directional flow:</strong> Consistent arrow directions help show system flow</li>
+              </ul>
+
+              <div className="field-label" style={{ marginTop: 20 }}>Content Strategy</div>
+              <ul>
+                <li><strong>Node naming:</strong> Use noun phrases, keep names under 3 words when possible</li>
+                <li><strong>Description economy:</strong> 1-2 sentences max, focus on key context</li>
+                <li><strong>Tag vocabulary:</strong> Establish consistent tags early (technology, process, team, critical)</li>
+                <li><strong>Link semantics:</strong> Prefer keywords and short custom keywords over long paragraphs</li>
+                <li><strong>Note placement:</strong> Use sticky notes for context that doesn't fit in nodes</li>
+              </ul>
+
+              <div className="field-label" style={{ marginTop: 20 }}>Layout Strategies</div>
+              <ul>
+                <li><strong>Hub and spoke:</strong> Central important nodes with related elements around them</li>
+                <li><strong>Flow diagrams:</strong> Left-to-right or top-to-bottom process flows</li>
+                <li><strong>Clustered groups:</strong> Related nodes grouped together with internal connections</li>
+                <li><strong>Layered hierarchy:</strong> Important nodes at top, supporting details below</li>
+                <li><strong>Grid alignment:</strong> Use the subtle grid to align related elements</li>
+              </ul>
+
+              <div className="field-label" style={{ marginTop: 20 }}>Collaboration Workflows</div>
+              <ul>
+                <li><strong>Share early drafts:</strong> Use save codes to get feedback on structure</li>
+                <li><strong>Version control:</strong> Save before major changes, keep multiple checkpoints</li>
+                <li><strong>Review sessions:</strong> Export images for presentations and reviews</li>
+                <li><strong>Incremental building:</strong> Add detail progressively based on team input</li>
+                <li><strong>Documentation integration:</strong> Use as visual summaries of larger documents</li>
+              </ul>
+
+              <div className="field-label" style={{ marginTop: 20 }}>Analysis-Driven Improvement</div>
+              <ul>
+                <li><strong>Monitor connection balance:</strong> Check for isolated nodes and over-connected hubs</li>
+                <li><strong>Tag distribution:</strong> Ensure good spread of categories across your network</li>
+                <li><strong>Color-topic alignment:</strong> Use analysis to verify consistent color coding</li>
+                <li><strong>Network density:</strong> Aim for 15-25% density for optimal comprehension</li>
+                <li><strong>Hub identification:</strong> Ensure important hubs are visually prominent</li>
+              </ul>
+
+              <div className="field-label" style={{ marginTop: 20 }}>Common Use Cases</div>
+              <ul>
+                <li><strong>System architecture:</strong> Show component relationships and data flow</li>
+                <li><strong>Process mapping:</strong> Document workflow steps and decision points</li>
+                <li><strong>Stakeholder networks:</strong> Map relationships between people and teams</li>
+                <li><strong>Knowledge mapping:</strong> Connect concepts and learning dependencies</li>
+                <li><strong>Project planning:</strong> Show task dependencies and resource allocation</li>
+                <li><strong>Problem analysis:</strong> Map causes, effects, and intervention points</li>
+              </ul>
+
+              <div className="field-label" style={{ marginTop: 20 }}>Performance Tips</div>
+              <ul>
+                <li><strong>Large networks:</strong> Keep networks under 50 nodes for optimal performance</li>
+                <li><strong>Complex connections:</strong> Use curved links judiciously in very dense areas</li>
+                <li><strong>Export optimization:</strong> Position view carefully before exporting large diagrams</li>
+                <li><strong>Browser performance:</strong> Modern browsers work best, save regularly</li>
               </ul>
             </div>
             )}
+            </div>
           </div>
         </div>
       )}
 
       {showUpdates && (
         <div className="modal-overlay" onClick={() => setShowUpdates(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal guide-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Updates</h3>
+              <h3>Updates & Version History</h3>
               <button className="close-btn" onClick={() => setShowUpdates(false)} aria-label="Close">×</button>
             </div>
-            <div className="modal-section">
-              <div className="field-label">Version</div>
-              <div>1.1.0</div>
+            <div className="updates-content">
+              
+              {/* Version 1.2.0 - Latest */}
+              <div className="version-card latest">
+                <div className="version-header">
+                  <div className="version-number">v1.2.0</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div className="version-badge">Latest</div>
+                    <div className="version-date">September 1, 2025</div>
+                  </div>
+                </div>
+                <div className="version-features">
+                  <h4>New Features</h4>
+                  <ul>
+                    <li><strong>Copy to Clipboard:</strong> One-click copy button in save modal for easy code sharing</li>
+                    <li><strong>Contact & Feedback:</strong> Built-in contact form for feature requests, bug reports, and feedback with Web3Forms integration</li>
+                    <li><strong>Enhanced Contact Form:</strong> Improved styling with better visual hierarchy, focus states, and responsive design</li>
+                    <li><strong>Consistent Icon Design:</strong> All interface icons now use matching stroke-based design for visual consistency</li>
+                  </ul>
+                  <h4>Improvements</h4>
+                  <ul>
+                    <li><strong>User Experience:</strong> Streamlined save workflow with instant clipboard access</li>
+                    <li><strong>Visual Polish:</strong> Enhanced form styling with gradient backgrounds and smooth transitions</li>
+                    <li><strong>Accessibility:</strong> Better focus indicators and form validation feedback</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Version 1.1.0 */}
+              <div className="version-card">
+                <div className="version-header">
+                  <div className="version-number">v1.1.0</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div className="version-date">August 30, 2025</div>
+                  </div>
+                </div>
+                <div className="version-features">
+                  <h4>New Features</h4>
+                  <ul>
+                    <li><strong>Analysis Tool:</strong> Comprehensive insights panel with system metrics, connection analysis, tag distribution, and network structure insights</li>
+                    <li><strong>Color-to-Topic Assignment:</strong> Automatic color categorization with manual override capability - colors automatically detect their most common tag, or you can assign custom topics</li>
+                    <li><strong>Enhanced Export:</strong> Image exports now include color legend showing topic assignments with intelligent auto-zoom to fit content</li>
+                    <li><strong>Delete Connections:</strong> Added delete button directly in the arrow menu for easy connection removal</li>
+                    <li><strong>UI Improvements:</strong> Better terminology ("Custom keywords" instead of "Notes"), cleaner interface, and improved user experience</li>
+                    <li><strong>Comprehensive Guide:</strong> Complete documentation with detailed workflows and best practices</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Version 1.0.0 - Initial Release */}
+              <div className="version-card">
+                <div className="version-header">
+                  <div className="version-number">v1.0.0</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div className="version-date">August 28, 2025</div>
+                  </div>
+                </div>
+                <div className="version-features">
+                  <h4>Initial Release - Core Features</h4>
+                  <ul>
+                    <li><strong>Node System:</strong> Create, drag, resize, and edit nodes with name, color, size, description, and tags</li>
+                    <li><strong>Connection System:</strong> Create links between nodes with direction arrows (→/←), curved/straight styles, and relationship keywords</li>
+                    <li><strong>Sticky Notes:</strong> Add resizable notes with full Markdown support and live preview</li>
+                    <li><strong>Canvas Navigation:</strong> Infinite canvas with pan and zoom controls, smooth interactions</li>
+                    <li><strong>Save & Open:</strong> Export complete scenes to compact codes and restore them exactly</li>
+                    <li><strong>Image Export:</strong> Download high-DPI PNG images of your current canvas view</li>
+                    <li><strong>Color Tools:</strong> Built-in color palette with custom color picker support</li>
+                    <li><strong>Trash Zone:</strong> Drag-and-drop deletion for quick cleanup of nodes and notes</li>
+                    <li><strong>Interactive UI:</strong> Double-click editing, hover states, and intuitive controls</li>
+                    <li><strong>Documentation:</strong> Built-in guide and help system for all features</li>
+                    <li><strong>Dark Mode:</strong> Automatic dark/light theme support based on system preferences</li>
+                    <li><strong>Performance:</strong> Optimized rendering for smooth experience with complex networks</li>
+                  </ul>
+                </div>
+              </div>
+
             </div>
-            <div className="modal-section">
-              <div className="field-label">🆕 What's New in 1.1.0</div>
-              <ul>
-                <li><strong>Analysis Tool:</strong> Comprehensive insights panel with system metrics, connection analysis, tag distribution, and network structure insights.</li>
-                <li><strong>Color-to-Topic Assignment:</strong> Automatic color categorization with manual override capability. Colors automatically detect their most common tag, or you can assign custom topics.</li>
-                <li><strong>Enhanced Export:</strong> Image exports now include color legend showing topic assignments with intelligent auto-zoom to fit content.</li>
-                <li><strong>Delete Connections:</strong> Added delete button directly in the arrow menu for easy connection removal.</li>
-                <li><strong>UI Improvements:</strong> Better terminology ("Custom keywords" instead of "Notes"), cleaner interface, and improved user experience.</li>
-              </ul>
+          </div>
+        </div>
+      )}
+
+      {showContact && (
+        <div className="modal-overlay" onClick={() => setShowContact(false)}>
+          <div className="modal contact-form" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Contact & Feedback</h3>
+              <button className="close-btn" onClick={() => setShowContact(false)} aria-label="Close">×</button>
             </div>
-            <div className="modal-section">
-              <div className="field-label">All features</div>
-              <ul>
-                <li>Nodes: add, drag, resize, edit name/color/size/description/tags.</li>
-                <li>Links: create, set direction (→/←), style (straight/curved), keywords, custom keywords, delete connections.</li>
-                <li>Sticky notes: add, resize, edit in Markdown with live preview.</li>
-                <li>Canvas: pan and zoom with on-screen controls.</li>
-                <li>Save/Open: export scene to a code and restore from it.</li>
-                <li>Trash zone: drop a dragging node or note to delete quickly.</li>
-                <li>Color tools: palette and custom color picker.</li>
-                <li>Export: download the current canvas as an image with color legend.</li>
-                <li>Analysis: real-time insights, network analysis, color categorization.</li>
-                <li>Docs and Updates modals for guidance and messages.</li>
-              </ul>
-            </div>
+            
+            {contactSubmitted ? (
+              <div className="modal-section" style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <div style={{ fontSize: '24px', marginBottom: '16px' }}>✓</div>
+                <h4 style={{ margin: '0 0 12px 0', color: '#10b981' }}>Message Sent!</h4>
+                <p style={{ margin: 0, color: '#6b7280' }}>
+                  Thank you for your feedback. I'll get back to you soon!
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={submitContactForm}>
+                <div className="modal-section">
+                  <div className="intro-text">
+                    <p>
+                      Have a feature idea, found a bug, or want to share feedback? I'd love to hear from you!
+                    </p>
+                  </div>
+                  
+                  <div className="form-grid">
+                    <div className="field-group">
+                      <label className="field-label">Your Name</label>
+                      <input
+                        type="text"
+                        className="text-input"
+                        required
+                        value={contactForm.name}
+                        onChange={(e) => setContactForm(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="Enter your name"
+                      />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label">Email Address</label>
+                      <input
+                        type="email"
+                        className="text-input"
+                        required
+                        value={contactForm.email}
+                        onChange={(e) => setContactForm(prev => ({ ...prev, email: e.target.value }))}
+                        placeholder="your@email.com"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label">Feedback Type</label>
+                    <select
+                      className="text-input"
+                      value={contactForm.type}
+                      onChange={(e) => setContactForm(prev => ({ ...prev, type: e.target.value }))}
+                    >
+                      <option value="feature">Feature Request</option>
+                      <option value="bug">Bug Report</option>
+                      <option value="feedback">General Feedback</option>
+                      <option value="question">Question</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label">Message</label>
+                    <textarea
+                      className="textarea-input"
+                      required
+                      rows={5}
+                      value={contactForm.message}
+                      onChange={(e) => setContactForm(prev => ({ ...prev, message: e.target.value }))}
+                      placeholder="Tell me more about your idea, issue, or feedback..."
+                      style={{ minHeight: '120px' }}
+                    />
+                  </div>
+
+                  <div className="form-actions">
+                    <button
+                      type="button"
+                      className="action-btn"
+                      onClick={() => setShowContact(false)}
+                      disabled={contactSubmitting}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="action-btn btn-blue"
+                      disabled={contactSubmitting || !contactForm.name || !contactForm.email || !contactForm.message}
+                    >
+                      {contactSubmitting ? 'Sending...' : 'Send Message'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -1848,7 +2455,16 @@ function App() {
               <button className="close-btn" onClick={() => setShowSave(false)} aria-label="Close">×</button>
             </div>
             <div className="modal-section">
-              <label className="field-label">Copy this code</label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label className="field-label">Copy this code</label>
+                <button 
+                  className={`action-btn ${copySuccess ? 'btn-green' : 'btn-blue'}`}
+                  onClick={copySaveCode}
+                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                >
+                  {copySuccess ? '✓ Copied!' : 'Copy'}
+                </button>
+              </div>
               <textarea readOnly value={saveCode} onFocus={(e) => e.currentTarget.select()} />
             </div>
           </div>

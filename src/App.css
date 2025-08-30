@@ -323,6 +323,138 @@
   padding: 20px;
 }
 
+.guide-modal {
+  width: 620px;
+  height: 80vh;
+  max-height: 700px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.guide-modal .modal-header {
+  padding: 20px 20px 0 20px;
+  flex-shrink: 0;
+}
+
+.guide-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px 20px 20px;
+}
+
+.updates-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px 20px 20px;
+}
+
+.version-card {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  transition: all 0.2s ease;
+}
+
+.version-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.1);
+}
+
+.version-card.latest {
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+  color: white;
+  border-color: #7c3aed;
+}
+
+.version-card.latest .version-header {
+  color: white;
+}
+
+.version-card.latest .version-date {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+@media (prefers-color-scheme: dark) {
+  .version-card {
+    background: linear-gradient(135deg, #1f2937, #111827);
+    border-color: #374151;
+  }
+  .version-card.latest {
+    background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  }
+}
+
+.version-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.version-number {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.version-card.latest .version-number {
+  color: white;
+}
+
+.version-date {
+  font-size: 14px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.version-badge {
+  background: #10b981;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.version-features {
+  margin-top: 16px;
+}
+
+.version-features h4 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.version-card.latest .version-features h4 {
+  color: white;
+}
+
+.version-features ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.version-features li {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  .version-number {
+    color: #e5e7eb;
+  }
+  .version-features h4 {
+    color: #d1d5db;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   .modal {
     background: #111827;
@@ -366,6 +498,83 @@
 }
 .textarea-input {
   resize: vertical;
+}
+
+/* Contact Form Styling */
+.contact-form .modal-section {
+  padding: 24px;
+}
+
+.contact-form .field-group {
+  margin-bottom: 20px;
+}
+
+.contact-form .field-group:last-of-type {
+  margin-bottom: 24px;
+}
+
+.contact-form .text-input,
+.contact-form .textarea-input {
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.contact-form .text-input:focus,
+.contact-form .textarea-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  outline: none;
+}
+
+.contact-form .intro-text {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.contact-form .intro-text p {
+  margin: 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.contact-form .form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.contact-form .form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  .contact-form .intro-text {
+    background: linear-gradient(135deg, #1f2937, #111827);
+    border-color: #374151;
+  }
+  
+  .contact-form .intro-text p {
+    color: #9ca3af;
+  }
+  
+  .contact-form .form-actions {
+    border-color: #374151;
+  }
+  
+  .contact-form .text-input:focus,
+  .contact-form .textarea-input:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.1);
+  }
 }
 
 @media (prefers-color-scheme: dark) {
