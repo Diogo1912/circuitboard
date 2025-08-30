@@ -113,7 +113,7 @@
 .editable-title:hover::after {
   content: '✏️';
   position: absolute;
-  right: -20px;
+  left: -20px;
   top: 50%;
   transform: translateY(-50%);
   font-size: 12px;
@@ -134,6 +134,7 @@
 }
 .brand-name { font-size: 44px; }
 .brand-stars { width: 40px; height: 40px; object-fit: contain; }
+
 
 @media (prefers-color-scheme: dark) {
   .top-title { color: #e5e7eb; }
@@ -2091,3 +2092,4 @@
     border-color: #991b1b;
   }
 }
+

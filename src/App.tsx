@@ -190,6 +190,7 @@ function App() {
   const [systemName, setSystemName] = useState<string>("Circuitboard")
   const [isEditingSystemName, setIsEditingSystemName] = useState<boolean>(false)
   const [systemNameInput, setSystemNameInput] = useState<string>("Circuitboard")
+  
   // AI chat removed
   const [showDocs, setShowDocs] = useState<boolean>(false)
   const [showUpdates, setShowUpdates] = useState<boolean>(false)
