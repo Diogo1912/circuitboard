@@ -201,13 +201,6 @@ function App() {
     }
   }
 
-  function toggleInteractionMode() {
-    setInteractionMode(interactionMode === 'hand' ? 'mouse' : 'hand')
-    // Clear selections when switching modes
-    setSelectedNodes(new Set())
-    setSelectedStickies(new Set())
-    setSelectionBox(null)
-  }
 
   function startEditingSystemName() {
     setSystemNameInput(systemName)
@@ -869,9 +862,9 @@ function App() {
       const newSelectedStickies = new Set<string>()
       stickyNotes.forEach(sticky => {
         const stickyMinX = sticky.x
-        const stickyMaxX = sticky.x + sticky.w
+        const stickyMaxX = sticky.x + sticky.width
         const stickyMinY = sticky.y
-        const stickyMaxY = sticky.y + sticky.h
+        const stickyMaxY = sticky.y + sticky.height
         
         if (stickyMinX < maxX && stickyMaxX > minX && stickyMinY < maxY && stickyMaxY > minY) {
           newSelectedStickies.add(sticky.id)
@@ -896,7 +889,6 @@ function App() {
         // If dragging a selected node, delete all selected nodes and stickies
         if (selectedNodes.has(draggingNodeId)) {
           const nodesToDelete = Array.from(selectedNodes)
-          const stickiesToDelete = Array.from(selectedStickies)
           setNodes((prev) => prev.filter((n) => !selectedNodes.has(n.id)))
           setEdges((prev) => prev.filter((e) => !nodesToDelete.includes(e.sourceId) && !nodesToDelete.includes(e.targetId)))
           setStickyNotes((prev) => prev.filter((s) => !selectedStickies.has(s.id)))
