@@ -920,6 +920,15 @@
   font-size: 18px;
 }
 
+.zoom-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.zoom-btn.undo-btn {
+  font-size: 14px;
+}
+
 @media (prefers-color-scheme: dark) {
   .zoom-btn { background: #111827; color: #e5e7eb; border-color: #1f2937; }
 }

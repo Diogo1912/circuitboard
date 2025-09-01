@@ -60,9 +60,17 @@ const COLORS = [
   '#000000', // black
 ]
 
+type HistoryState = {
+  nodes: NodeItem[]
+  edges: EdgeItem[]
+  stickyNotes: StickyNote[]
+}
+
 function App() {
   const [nodes, setNodes] = useState<NodeItem[]>([])
   const [selectedColor, setSelectedColor] = useState<string>(COLORS[0])
+  const [history, setHistory] = useState<HistoryState[]>([])
+  const [historyIndex, setHistoryIndex] = useState<number>(-1)
   const [showColorPicker, setShowColorPicker] = useState<boolean>(false)
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
@@ -153,6 +161,44 @@ function App() {
 
   function centerView() {
     setPan({ x: 0, y: 0 })
+  }
+
+  function saveToHistory() {
+    const newState: HistoryState = {
+      nodes: [...nodes],
+      edges: [...edges],
+      stickyNotes: [...stickyNotes]
+    }
+    
+    // Remove any future history if we're not at the end
+    const newHistory = history.slice(0, historyIndex + 1)
+    newHistory.push(newState)
+    
+    // Limit history to 50 states
+    if (newHistory.length > 50) {
+      newHistory.shift()
+    } else {
+      setHistoryIndex(historyIndex + 1)
+    }
+    
+    setHistory(newHistory)
+  }
+
+  function undo() {
+    if (historyIndex >= 0) {
+      const previousState = history[historyIndex]
+      setNodes(previousState.nodes)
+      setEdges(previousState.edges)
+      setStickyNotes(previousState.stickyNotes)
+      setHistoryIndex(historyIndex - 1)
+      
+      // Clear selections after undo
+      setSelectedNodes(new Set())
+      setSelectedStickies(new Set())
+      setActiveNodeId(null)
+      setActiveEdgeId(null)
+      setActiveStickyId(null)
+    }
   }
 
   function toggleInteractionMode() {
@@ -589,6 +635,7 @@ function App() {
   }
 
   function addNode() {
+    saveToHistory()
     const container = canvasRef.current
     const rect = container?.getBoundingClientRect()
     const centerX = rect ? (rect.width / 2) / zoom - pan.x : 200
@@ -844,6 +891,7 @@ function App() {
     
     // If dropping into trash, delete dragged item and any selected items
     if (isOverTrash) {
+      saveToHistory()
       if (draggingNodeId) {
         // If dragging a selected node, delete all selected nodes and stickies
         if (selectedNodes.has(draggingNodeId)) {
@@ -937,6 +985,7 @@ function App() {
   }
 
   function addStickyAt(px: number, py: number) {
+    saveToHistory()
     const id = cryptoRandomId()
     const note: StickyNote = {
       id,
@@ -955,6 +1004,7 @@ function App() {
     const node = nodes.find((n) => n.id === activeNodeId)
     const ok = window.confirm(`Delete node "${node?.title ?? ''}" and its connections?`)
     if (!ok) return
+    saveToHistory()
     setEdges((prev) => prev.filter((e) => e.sourceId !== activeNodeId && e.targetId !== activeNodeId))
     setNodes((prev) => prev.filter((n) => n.id !== activeNodeId))
     setActiveNodeId(null)
@@ -2838,6 +2888,18 @@ function App() {
 
       {/* Zoom controls */}
       <div className="zoom-controls">
+        <button 
+          className={`zoom-btn undo-btn ${historyIndex < 0 ? 'disabled' : ''}`} 
+          onClick={undo} 
+          disabled={historyIndex < 0}
+          aria-label="Undo last action" 
+          title="Undo last action"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 7v6h6"/>
+            <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"/>
+          </svg>
+        </button>
         <button className="zoom-btn" onClick={zoomOut} aria-label="Zoom out">-</button>
         <div className="zoom-level">{Math.round(zoom * 100)}%</div>
         <button className="zoom-btn" onClick={zoomIn} aria-label="Zoom in">+</button>
