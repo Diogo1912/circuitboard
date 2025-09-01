@@ -155,6 +155,14 @@ function App() {
     setPan({ x: 0, y: 0 })
   }
 
+  function toggleInteractionMode() {
+    setInteractionMode(interactionMode === 'hand' ? 'mouse' : 'hand')
+    // Clear selections when switching modes
+    setSelectedNodes(new Set())
+    setSelectedStickies(new Set())
+    setSelectionBox(null)
+  }
+
   function startEditingSystemName() {
     setSystemNameInput(systemName)
     setIsEditingSystemName(true)
@@ -190,6 +198,10 @@ function App() {
   const [systemName, setSystemName] = useState<string>("Circuitboard")
   const [isEditingSystemName, setIsEditingSystemName] = useState<boolean>(false)
   const [systemNameInput, setSystemNameInput] = useState<string>("Circuitboard")
+  const [interactionMode, setInteractionMode] = useState<'hand' | 'mouse'>('hand')
+  const [selectedNodes, setSelectedNodes] = useState<Set<string>>(new Set())
+  const [selectedStickies, setSelectedStickies] = useState<Set<string>>(new Set())
+  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   
   // AI chat removed
   const [showDocs, setShowDocs] = useState<boolean>(false)
@@ -604,6 +616,13 @@ function App() {
     if (!node) return
     const pointerX = (e.clientX - containerRect.left) / zoom - pan.x
     const pointerY = (e.clientY - containerRect.top) / zoom - pan.y
+    
+    // In mouse mode, if this node is not selected, select only this node
+    if (interactionMode === 'mouse' && !selectedNodes.has(nodeId)) {
+      setSelectedNodes(new Set([nodeId]))
+      setSelectedStickies(new Set())
+    }
+    
     setDraggingNodeId(nodeId)
     setDragOffset({ dx: pointerX - node.x, dy: pointerY - node.y })
     interactionStartRef.current = { x: pointerX, y: pointerY }
@@ -618,6 +637,12 @@ function App() {
     const pointerX = (e.clientX - containerRect.left) / zoom - pan.x
     const pointerY = (e.clientY - containerRect.top) / zoom - pan.y
     setPointerPos({ x: pointerX, y: pointerY })
+    
+    // Update selection box if we're in mouse mode
+    if (selectionBox && interactionMode === 'mouse') {
+      setSelectionBox(prev => prev ? { ...prev, endX: pointerX, endY: pointerY } : null)
+      return
+    }
     if (draggingStickyId && stickyDragOffset) {
       const newX = pointerX - stickyDragOffset.dx
       const newY = pointerY - stickyDragOffset.dy
@@ -691,9 +716,36 @@ function App() {
       }
       const newX = pointerX - dragOffset.dx
       const newY = pointerY - dragOffset.dy
-      setNodes((prev) =>
-        prev.map((n) => (n.id === draggingNodeId ? { ...n, x: newX, y: newY } : n))
-      )
+      
+      // Calculate the movement delta
+      const draggedNode = nodes.find(n => n.id === draggingNodeId)
+      if (draggedNode) {
+        const deltaX = newX - draggedNode.x
+        const deltaY = newY - draggedNode.y
+        
+        // Move all selected nodes if in mouse mode, otherwise just the dragged node
+        if (interactionMode === 'mouse' && selectedNodes.size > 1) {
+          setNodes((prev) =>
+            prev.map((n) => 
+              selectedNodes.has(n.id) 
+                ? { ...n, x: n.x + deltaX, y: n.y + deltaY }
+                : n
+            )
+          )
+          // Also move selected sticky notes
+          setStickyNotes((prev) =>
+            prev.map((s) => 
+              selectedStickies.has(s.id)
+                ? { ...s, x: s.x + deltaX, y: s.y + deltaY }
+                : s
+            )
+          )
+        } else {
+          setNodes((prev) =>
+            prev.map((n) => (n.id === draggingNodeId ? { ...n, x: newX, y: newY } : n))
+          )
+        }
+      }
       return
     }
     if (isPanning && panStartRef.current && pointerStartRef.current) {
@@ -744,15 +796,84 @@ function App() {
   }
 
   function onPointerUp() {
-    // If dropping into trash, delete dragged item
+    // Complete box selection if we're in mouse mode
+    if (selectionBox && interactionMode === 'mouse') {
+      const { startX, startY, endX, endY } = selectionBox
+      const minX = Math.min(startX, endX)
+      const maxX = Math.max(startX, endX)
+      const minY = Math.min(startY, endY)
+      const maxY = Math.max(startY, endY)
+      
+      // Select nodes within the box
+      const newSelectedNodes = new Set<string>()
+      nodes.forEach(node => {
+        const nodeSize = node.size ?? 64
+        const nodeMinX = node.x
+        const nodeMaxX = node.x + nodeSize
+        const nodeMinY = node.y
+        const nodeMaxY = node.y + nodeSize
+        
+        if (nodeMinX < maxX && nodeMaxX > minX && nodeMinY < maxY && nodeMaxY > minY) {
+          newSelectedNodes.add(node.id)
+        }
+      })
+      
+      // Select sticky notes within the box
+      const newSelectedStickies = new Set<string>()
+      stickyNotes.forEach(sticky => {
+        const stickyMinX = sticky.x
+        const stickyMaxX = sticky.x + sticky.w
+        const stickyMinY = sticky.y
+        const stickyMaxY = sticky.y + sticky.h
+        
+        if (stickyMinX < maxX && stickyMaxX > minX && stickyMinY < maxY && stickyMaxY > minY) {
+          newSelectedStickies.add(sticky.id)
+        }
+      })
+      
+      setSelectedNodes(newSelectedNodes)
+      setSelectedStickies(newSelectedStickies)
+      setSelectionBox(null)
+      // Only suppress click if we actually dragged to create a selection (not just a single click)
+      const dragDistance = Math.abs(endX - startX) + Math.abs(endY - startY)
+      if (dragDistance > 5) {
+        suppressCanvasClickRef.current = true
+      }
+      return
+    }
+    
+    // If dropping into trash, delete dragged item and any selected items
     if (isOverTrash) {
       if (draggingNodeId) {
-        setNodes((prev) => prev.filter((n) => n.id !== draggingNodeId))
-        setEdges((prev) => prev.filter((e) => e.sourceId !== draggingNodeId && e.targetId !== draggingNodeId))
+        // If dragging a selected node, delete all selected nodes and stickies
+        if (selectedNodes.has(draggingNodeId)) {
+          const nodesToDelete = Array.from(selectedNodes)
+          const stickiesToDelete = Array.from(selectedStickies)
+          setNodes((prev) => prev.filter((n) => !selectedNodes.has(n.id)))
+          setEdges((prev) => prev.filter((e) => !nodesToDelete.includes(e.sourceId) && !nodesToDelete.includes(e.targetId)))
+          setStickyNotes((prev) => prev.filter((s) => !selectedStickies.has(s.id)))
+          setSelectedNodes(new Set())
+          setSelectedStickies(new Set())
+        } else {
+          // Just delete the single dragged node
+          setNodes((prev) => prev.filter((n) => n.id !== draggingNodeId))
+          setEdges((prev) => prev.filter((e) => e.sourceId !== draggingNodeId && e.targetId !== draggingNodeId))
+        }
         setActiveNodeId(null)
       }
       if (draggingStickyId) {
-        setStickyNotes((prev) => prev.filter((s) => s.id !== draggingStickyId))
+        // If dragging a selected sticky, delete all selected stickies and nodes
+        if (selectedStickies.has(draggingStickyId)) {
+          const nodesToDelete = Array.from(selectedNodes)
+          setStickyNotes((prev) => prev.filter((s) => !selectedStickies.has(s.id)))
+          setNodes((prev) => prev.filter((n) => !selectedNodes.has(n.id)))
+          setEdges((prev) => prev.filter((e) => !nodesToDelete.includes(e.sourceId) && !nodesToDelete.includes(e.targetId)))
+          setSelectedNodes(new Set())
+          setSelectedStickies(new Set())
+        } else {
+          // Just delete the single dragged sticky
+          setStickyNotes((prev) => prev.filter((s) => s.id !== draggingStickyId))
+        }
         setActiveStickyId(null)
       }
     }
@@ -1277,7 +1398,24 @@ function App() {
         <button className="action-btn btn-red" onClick={() => setShowResetConfirm(true)}>Reset</button>
       </div>
 
-      <div className="floating-pill">
+      <div className="floating-pill mode-pill">
+        <button 
+          className={`swatch mode-button ${interactionMode === 'hand' ? 'active' : ''}`}
+          onClick={() => setInteractionMode('hand')}
+          title="Hand Mode (pan and drag)"
+        >
+          <img src="/circuitboard/hand.png" alt="Hand" width="20" height="20" />
+        </button>
+        <button 
+          className={`swatch mode-button ${interactionMode === 'mouse' ? 'active' : ''}`}
+          onClick={() => setInteractionMode('mouse')}
+          title="Select Mode (box select)"
+        >
+          <img src="/circuitboard/pointer.svg" alt="Pointer" width="16" height="16" />
+        </button>
+      </div>
+
+      <div className="floating-pill tools-pill">
         <button className="add-btn" title="Add node" onClick={addNode}>+</button>
         <div className="pill-divider" />
         <div className="pill-palette">
@@ -1316,11 +1454,22 @@ function App() {
         onPointerDown={(e) => {
           // Start panning only if clicking true background (exclude nodes, notes, handles, UI)
           if (isBackgroundTarget(e.target)) {
-            setIsPanning(true)
-            setShowMinimap(true)
-            panStartRef.current = { ...pan }
-            pointerStartRef.current = { x: e.clientX, y: e.clientY }
-            canvasDidPanRef.current = false
+            if (interactionMode === 'hand') {
+              setIsPanning(true)
+              setShowMinimap(true)
+              panStartRef.current = { ...pan }
+              pointerStartRef.current = { x: e.clientX, y: e.clientY }
+              canvasDidPanRef.current = false
+            } else {
+              // Mouse mode - start box selection
+              const container = canvasRef.current
+              if (container) {
+                const rect = container.getBoundingClientRect()
+                const startX = (e.clientX - rect.left) / zoom - pan.x
+                const startY = (e.clientY - rect.top) / zoom - pan.y
+                setSelectionBox({ startX, startY, endX: startX, endY: startY })
+              }
+            }
           }
         }}
         onPointerUp={(e) => {
@@ -1346,6 +1495,7 @@ function App() {
             edgeDragStartRef.current = null
             return
           }
+          // Create sticky notes when clicking background in both modes
           if (isBackgroundTarget(e.target)) {
             const container = canvasRef.current
             if (!container) return
@@ -1502,7 +1652,7 @@ function App() {
         {stickyNotes.map((note) => (
           <div
             key={note.id}
-            className={`sticky-note ${draggingStickyId === note.id ? 'dragging' : ''}`}
+            className={`sticky-note ${draggingStickyId === note.id ? 'dragging' : ''} ${selectedStickies.has(note.id) ? 'selected' : ''}`}
             style={{
               transform: `translate(${note.x}px, ${note.y}px)`,
               width: `${note.width}px`,
@@ -1573,7 +1723,7 @@ function App() {
         {nodes.map((node) => (
           <div
             key={node.id}
-            className={`node ${draggingNodeId === node.id ? 'dragging' : ''}`}
+            className={`node ${draggingNodeId === node.id ? 'dragging' : ''} ${selectedNodes.has(node.id) ? 'selected' : ''}`}
             style={{
               transform: `translate(${node.x}px, ${node.y}px)`,
               width: `${node.size}px`,
@@ -1672,6 +1822,23 @@ function App() {
             />
           </div>
         ))}
+        
+        {/* Selection box in mouse mode */}
+        {selectionBox && interactionMode === 'mouse' && (
+          <div
+            className="selection-box"
+            style={{
+              position: 'absolute',
+              left: Math.min(selectionBox.startX, selectionBox.endX),
+              top: Math.min(selectionBox.startY, selectionBox.endY),
+              width: Math.abs(selectionBox.endX - selectionBox.startX),
+              height: Math.abs(selectionBox.endY - selectionBox.startY),
+              border: '2px dashed #3b82f6',
+              background: 'rgba(59, 130, 246, 0.1)',
+              pointerEvents: 'none'
+            }}
+          />
+        )}
         </div>
       </div>
 
