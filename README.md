@@ -1,37 +1,66 @@
 # Circuitboard
 
-Visualize systems using nodes (circles) and links (arrows), with sticky notes, zoom/pan, save/open via a shareable code, and PNG export. Frontend-only.
+**A powerful visual system design tool for creating interactive diagrams, flowcharts, and system architectures.**
 
-## Features
+Circuitboard is a web-based diagramming tool that lets you create beautiful, interactive visualizations of complex systems. Whether you're designing software architectures, mapping business processes, or creating educational diagrams, Circuitboard provides an intuitive interface with powerful features.
 
-- Nodes
-  - Add with the + button; drag to move; resize via 4 corner handles
-  - Edit name, color, size, description, and tags (comma-separated)
-  - Optional text color override (light/dark)
-  - Delete from editor or drag the node into the trash circle
-- Links (arrows)
-  - Create by dragging from a node handle (left/right/top/bottom) onto another node
-  - Direction: none, → (source→target), or ← (target→source)
-  - Curving: click-and-drag the edge to adjust curvature; arrowheads follow the curve
-  - One edge max between two nodes (duplicates are ignored)
-  - Keywords (e.g., increases/decreases) and short label note
-- Sticky notes
-  - Click background to create; double-click to edit
-  - Markdown editing with live preview; drag to resize; delete via trash
-- Canvas & navigation
-  - Pan by dragging background; zoom with on-screen −/+
-  - Hover edges to highlight; click edges to open settings
-  - Safe interactions prevent accidental clicks after drags/pans
-- Save/Open
-  - Save: generates a compact code; Open: paste code to restore full scene
-- Export
-  - Export PNG of the current canvas (high-DPI)
-- UI
-  - Guide modal with topics; Updates modal with version/features
-  - Footer credit
-  - Optional Buy Me a Coffee button
+🌐 **[Try it now - No installation required!](https://diogo1912.github.io/circuitboard)**
 
-## Local development
+## What is Circuitboard?
+
+Circuitboard transforms complex ideas into clear visual representations using:
+- **Nodes (circles)** - Represent components, entities, or concepts
+- **Links (arrows)** - Show relationships, data flow, or dependencies  
+- **Sticky notes** - Add context, documentation, or annotations
+- **Interactive canvas** - Pan, zoom, and explore your diagrams seamlessly
+
+Perfect for software architects, system designers, educators, product managers, and anyone who needs to communicate complex ideas visually.
+
+## ✨ Key Features
+
+### 🔵 Smart Nodes
+- **Easy creation** - Click the + button to add nodes instantly
+- **Flexible editing** - Customize name, color, size, description, and tags
+- **Visual consistency** - Automatic light/dark text color or manual override
+- **Intuitive manipulation** - Drag to move, resize with corner handles
+
+### ↗️ Dynamic Links  
+- **Simple connection** - Drag from node handles to create relationships
+- **Directional flow** - Choose between bidirectional (↔), unidirectional (→), or neutral connections
+- **Curved paths** - Click and drag edges to create elegant curves
+- **Rich annotations** - Add keywords and labels to describe relationships
+
+### 📝 Markdown Sticky Notes
+- **Quick documentation** - Click anywhere to add contextual notes
+- **Live preview** - Real-time markdown rendering while editing
+- **Flexible sizing** - Drag to resize, delete via trash when not needed
+
+### 🗺️ Interactive Canvas
+- **Smooth navigation** - Pan by dragging, zoom with intuitive controls
+- **Smart interactions** - Hover highlighting and safe click detection
+- **Edge management** - Click any connection to modify its properties
+
+### 💾 Save & Share
+- **Portable format** - Generate compact shareable codes for your diagrams
+- **Version control** - Save multiple versions and restore any previous state
+- **No account required** - Everything works locally in your browser
+
+### 📸 Professional Export
+- **High-quality PNG** - Export crisp, high-DPI images for presentations
+- **What you see is what you get** - Perfect reproduction of your canvas
+
+### 🎨 User Experience
+- **Built-in guide** - Interactive tutorial to get you started quickly  
+- **Update notifications** - Stay informed about new features
+- **Clean interface** - Distraction-free design focused on your content
+
+## 🚀 Get Started
+
+The easiest way to use Circuitboard is through the **[live web app](https://diogo1912.github.io/circuitboard)** - no installation required!
+
+## 🛠️ Local Development
+
+Want to contribute or run locally? 
 
 ```bash
 cd web
@@ -39,26 +68,21 @@ npm install
 npm run dev
 ```
 
-Build a production bundle:
-
+Build for production:
 ```bash
 npm run build
 npm run preview
 ```
 
-## Deploy to GitHub Pages
+<details>
+<summary>📋 Deploy to GitHub Pages (Click to expand)</summary>
 
-The site is a static Vite build in `web/dist`. Use GitHub Pages to serve it.
+### Repository Setup
+- Ensure your repo has the `web/` folder at the root
+- In GitHub → Settings → Pages: set Source to "Deploy from a branch" and select `gh-pages`
 
-### 1) Repository settings
-
-- Ensure your repo has the `web/` folder at the root (this one).
-- In GitHub → Settings → Pages: set Source to “Deploy from a branch”, and later select the `gh-pages` branch (the workflow below will produce it).
-
-### 2) Vite base (if deploying to user/organization site, skip)
-
-If deploying to `https://<user>.github.io/<repo>/`, set Vite base path so assets resolve correctly. Edit `web/vite.config.ts`:
-
+### Vite Configuration  
+For `https://<user>.github.io/<repo>/` deployment, edit `web/vite.config.ts`:
 ```ts
 export default defineConfig({
   plugins: [react()],
@@ -66,12 +90,8 @@ export default defineConfig({
 })
 ```
 
-For user/organization sites at the root (e.g., `diogo1912.github.io`), leave `base` as default.
-
-### 3) GitHub Actions workflow
-
-Create `.github/workflows/deploy.yml` at the repo root:
-
+### GitHub Actions Workflow
+Create `.github/workflows/deploy.yml`:
 ```yaml
 name: Deploy to GitHub Pages
 
@@ -85,33 +105,20 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: 'pages'
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-
-      - name: Install deps
-        working-directory: web
+      - working-directory: web
         run: npm ci --no-audit --no-fund
-
-      - name: Build
-        working-directory: web
+      - working-directory: web  
         run: npm run build
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
 
@@ -120,22 +127,23 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v4
 ```
 
-### 4) Enable Pages
+</details>
 
-- After the first successful run, go to Settings → Pages and ensure the site is set to the newly created deployment. The workflow publishes to the `github-pages` environment automatically.
+## 🏗️ Technical Details
 
-### 5) Verify
+- **100% Frontend** - No server required, runs entirely in your browser
+- **Privacy First** - All data stays local, nothing is sent to external servers  
+- **Modern Stack** - Built with React, TypeScript, and Vite for optimal performance
+- **Cross-Platform** - Works on desktop, tablet, and mobile devices
 
-- Push to `main` and wait for the workflow. Your site should be live at the URL indicated in the workflow output.
+## 📄 License
 
-## Notes
+This project is open source. Feel free to contribute, report issues, or suggest new features!
 
-- This project is frontend-only; there is no backend requirement.
-- Assets like `circuit.png` and `book.svg` should live under `web/public/`.
+---
+
+**Made with ❤️ for the system design community**

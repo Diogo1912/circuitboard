@@ -2583,7 +2583,7 @@ function App() {
                   <div className="version-number">v1.4.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div className="version-badge">Latest</div>
-                    <div className="version-date">September 1, 2025</div>
+                    <div className="version-date">September 2, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2617,7 +2617,7 @@ function App() {
                 <div className="version-header">
                   <div className="version-number">v1.3.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className="version-date">August 31, 2025</div>
+                    <div className="version-date">August 30, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2642,7 +2642,7 @@ function App() {
                 <div className="version-header">
                   <div className="version-number">v1.2.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className="version-date">August 30, 2025</div>
+                    <div className="version-date">August 27, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2667,7 +2667,7 @@ function App() {
                 <div className="version-header">
                   <div className="version-number">v1.1.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className="version-date">August 29, 2025</div>
+                    <div className="version-date">August 25, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
@@ -2688,7 +2688,7 @@ function App() {
                 <div className="version-header">
                   <div className="version-number">v1.0.0</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className="version-date">August 27, 2025</div>
+                    <div className="version-date">August 22, 2025</div>
                   </div>
                 </div>
                 <div className="version-features">
